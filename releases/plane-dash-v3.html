@@ -49,6 +49,13 @@
     overflow:hidden;
     z-index:1;
   }
+  /* touch-action does NOT inherit, so the `touch-action:none` on html/body
+     above does not reach these. Without it the browser treats a fast repeat
+     tap on the climb button as double-tap-to-zoom. `manipulation` kills the
+     double-tap gesture while leaving the menu scrollable. */
+  #gameArea, #gameCanvas, #thrustPad, #thrustBtn, .pix-btn, .hexInner{
+    touch-action:manipulation;
+  }
   #gameCanvas{
     position:absolute; inset:0; width:100%; height:100%;
     display:block; image-rendering:pixelated;
@@ -270,7 +277,11 @@
     display:none; align-items:center; justify-content:center; flex-direction:column;
     text-align:center; padding:30px; gap:16px;
   }
-  @media (orientation:portrait) and (max-height:700px){
+  /* Show on any touch device held in portrait. Keyed on pointer:coarse rather
+     than a pixel height — modern phones are 850-950px tall in portrait, so the
+     old max-height:700px gate never matched and the hint never appeared.
+     Desktops report pointer:fine and are still excluded. */
+  @media (orientation:portrait) and (pointer:coarse){
     .rotate-hint.enabled{ display:flex; }
   }
   .rotate-hint h2{ font-size:16px; color:var(--accent); letter-spacing:1px; }
@@ -924,6 +935,9 @@ const thrustBtn = document.getElementById("thrustBtn");
 function pointerDown(e){
   if(e) e.preventDefault();
   if(state !== "playing") return;
+  // #thrustPad sits inside #stage and both listen for pointerdown, so one tap
+  // arrives twice via bubbling. Treat the press as already handled.
+  if(holding) return;
   holding = true;
   pressStartT = performance.now();
   thrustBtn.classList.add("active");
@@ -931,6 +945,9 @@ function pointerDown(e){
 function pointerUp(e){
   if(e) e.preventDefault();
   if(state !== "playing"){ holding=false; thrustBtn.classList.remove("active"); return; }
+  // Same duplication on release (window + #stage). Without this guard the
+  // quick-tap branch below runs twice per tap: two level-outs, two click SFX.
+  if(!holding) return;
   const dur = performance.now() - pressStartT;
   holding = false;
   thrustBtn.classList.remove("active");
@@ -1836,6 +1853,13 @@ document.getElementById("muteBtn").addEventListener("click", (e)=>{
 
 // prevent context menu / drag issues on mobile long-press
 window.addEventListener("contextmenu", e=>e.preventDefault());
+
+// iOS Safari ignores `user-scalable=no` in the viewport meta (since iOS 10),
+// so pinch-zoom has to be refused explicitly. These events are WebKit-only and
+// simply never fire elsewhere.
+["gesturestart","gesturechange","gestureend"].forEach(evt=>{
+  document.addEventListener(evt, e=>e.preventDefault(), {passive:false});
+});
 
 // Only block page scroll/pinch while actively over the game stage during play —
 // the menu (and its overflow-y:auto fallback) must stay scrollable.
