@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>DN Run</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #000;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
+  #wrap { position: relative; max-width: 100vw; max-height: 100vh; line-height: 0; }
+  canvas {
+    background: #0a0a1a;
+    display: block;
+    image-rendering: pixelated;
+    border: 4px solid #111;
+    max-width: 100vw; max-height: 100vh;
+    width: auto; height: auto;
+    touch-action: none;
+  }
+  #hud {
+    position: absolute; top: 10px; left: 14px; right: 14px;
+    color: #fff; font-size: 16px; text-shadow: 2px 2px #000;
+    display: flex; justify-content: space-between; align-items: center;
+    pointer-events: none;
+  }
+  #hud .stat { pointer-events: none; }
+  #combo {
+    position: absolute; top: 44px; left: 50%; transform: translate(-50%,0) scale(1);
+    color: #ffe14d; font-size: 20px; font-weight: bold; text-shadow: 2px 2px #000;
+    opacity: 0; transition: opacity 0.15s;
+    pointer-events: none;
+  }
+  #progressWrap {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    width: 55%; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px;
+    pointer-events: none; overflow: hidden;
+  }
+  #progressFill {
+    height: 100%; width: 0%; background: linear-gradient(90deg, #ffe14d, #ff6b6b);
+  }
+  #msg {
+    position: absolute; top: 42%; left: 50%; transform: translate(-50%, -50%);
+    color: #fff; font-size: 26px; text-shadow: 3px 3px #000;
+    text-align: center; pointer-events: none; display: none;
+    line-height: 1.5;
+  }
+  #help { color: #ddd; font-size: 13px; text-align: center; margin-top: 8px; }
+  body.touch-mode #help { display: none; }
+
+  #touchControls { display: none; position: absolute; inset: 0; pointer-events: none; }
+  body.touch-mode #touchControls { display: block; }
+  .touch-zone { position: absolute; bottom: 14px; display: flex; gap: 10px; pointer-events: none; }
+  #dpad { left: 14px; } #actions { right: 14px; }
+  .btn {
+    width: 78px; height: 78px; border-radius: 50%;
+    background: rgba(255,255,255,0.18); border: 2px solid rgba(255,255,255,0.55);
+    color: #fff; font-size: 13px; font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto; -webkit-user-select: none; user-select: none; touch-action: none;
+  }
+  .btn.pressed { background: rgba(255,255,255,0.5); }
+  #jumpBtn { background: rgba(255,225,77,0.25); border-color: rgba(255,225,77,0.7); }
+  #jumpBtn.pressed { background: rgba(255,225,77,0.6); }
+
+  #rotatePrompt {
+    display: none; position: fixed; inset: 0; background: #000; color: #fff; z-index: 999;
+    flex-direction: column; align-items: center; justify-content: center;
+    font-size: 18px; text-align: center; gap: 12px;
+  }
+  body.touch-mode.portrait #rotatePrompt { display: flex; }
+  body.touch-mode.portrait #wrap { display: none; }
+  #rotateIcon { font-size: 42px; }
+</style>
+</head>
+<body>
+<div>
+  <div id="wrap">
+    <canvas id="game" width="768" height="432"></canvas>
+    <div id="hud">
+      <div class="stat" id="scoreStat">SCORE: 0</div>
+      <div class="stat" id="levelStat">LEVEL 1/2</div>
+      <div class="stat" id="livesStat">♥ ♥ ♥</div>
+      <div id="muteBtn" style="pointer-events:auto; cursor:pointer; font-size:20px;">🔊</div>
+    </div>
+    <div id="progressWrap"><div id="progressFill"></div></div>
+    <div id="combo">COMBO x0</div>
+    <div id="msg"></div>
+
+    <div id="touchControls">
+      <div class="touch-zone" id="dpad">
+        <div class="btn" id="slideBtn">SLIDE<br>▼</div>
+      </div>
+      <div class="touch-zone" id="actions">
+        <div class="btn" id="jumpBtn">JUMP<br>▲</div>
+      </div>
+    </div>
+  </div>
+  <div id="help">SPACE / ↑ jump · ↓ / S slide · R restart</div>
+</div>
+
+<div id="rotatePrompt">
+  <div id="rotateIcon">⟳</div>
+  <div>Rotate your phone sideways<br>to play</div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const W = canvas.width, H = canvas.height;
+
+const GRAVITY = 0.6;
+const JUMP_VY = -11.5;
+const SLIDE_FRAMES = 26;
+const GROUND_Y = 340;
+const PLAYER_SX = 150;
+
+// ---------- Levels ----------
+const LEVELS = [
+  {
+    length: 7211,
+    baseSpeed: 4.5,
+    maxSpeed: 5.6,
+    theme: { sky1: '#2b0f4a', sky2: '#7d2e6b', ground: '#1b0b2e', accent: '#ff6bcb', sun: '#ffd166', grid: '#4a1f66' },
+    obstacles: [
+      {worldX:1356, type:"jump"}, {worldX:1832, type:"duck"}, {worldX:2433, type:"jump"},
+      {worldX:2942, type:"duck"}, {worldX:3535, type:"jump"}, {worldX:4041, type:"duck"},
+      {worldX:4492, type:"duck"}, {worldX:5050, type:"jump"}, {worldX:5586, type:"duck"},
+      {worldX:6124, type:"jump"}, {worldX:6711, type:"jump"},
+    ],
+    gems: [
+      {worldX:1554, dy:-20},{worldX:1594, dy:-20},{worldX:1634, dy:-20},
+      {worldX:2093, dy:-70},{worldX:2133, dy:-70},{worldX:2173, dy:-70},
+      {worldX:2648, dy:-20},{worldX:2688, dy:-20},{worldX:2728, dy:-20},
+      {worldX:3199, dy:-70},{worldX:3239, dy:-70},{worldX:3279, dy:-70},
+      {worldX:3748, dy:-20},{worldX:3788, dy:-20},{worldX:3828, dy:-20},
+      {worldX:4731, dy:-70},{worldX:4771, dy:-70},{worldX:4811, dy:-70},
+      {worldX:5278, dy:-20},{worldX:5318, dy:-20},{worldX:5358, dy:-20},
+      {worldX:5815, dy:-70},{worldX:5855, dy:-70},{worldX:5895, dy:-70},
+      {worldX:6378, dy:-70},{worldX:6418, dy:-70},{worldX:6458, dy:-70},
+    ],
+  },
+  {
+    length: 10370,
+    baseSpeed: 5.6,
+    maxSpeed: 7.2,
+    theme: { sky1: '#031c3d', sky2: '#0d5c73', ground: '#031224', accent: '#4dfff0', sun: '#7bffcb', grid: '#0f3a52' },
+    obstacles: [
+      {worldX:1420, type:"duck"}, {worldX:2100, type:"duck"}, {worldX:2674, type:"jump"},
+      {worldX:3271, type:"jump"}, {worldX:3812, type:"duck"}, {worldX:4483, type:"jump"},
+      {worldX:5026, type:"jump"}, {worldX:5623, type:"duck"}, {worldX:6298, type:"jump"},
+      {worldX:6806, type:"duck"}, {worldX:7360, type:"jump"}, {worldX:7914, type:"duck"},
+      {worldX:8578, type:"duck"}, {worldX:9221, type:"jump"}, {worldX:9870, type:"duck"},
+    ],
+    gems: [
+      {worldX:1120, dy:-20},{worldX:1160, dy:-20},{worldX:1200, dy:-20},
+      {worldX:1720, dy:-20},{worldX:1760, dy:-20},{worldX:1800, dy:-20},
+      {worldX:2933, dy:-70},{worldX:2973, dy:-70},{worldX:3013, dy:-70},
+      {worldX:3502, dy:-20},{worldX:3542, dy:-20},{worldX:3582, dy:-20},
+      {worldX:4108, dy:-70},{worldX:4148, dy:-70},{worldX:4188, dy:-70},
+      {worldX:4715, dy:-70},{worldX:4755, dy:-70},{worldX:4795, dy:-70},
+      {worldX:5285, dy:-20},{worldX:5325, dy:-20},{worldX:5365, dy:-20},
+      {worldX:5921, dy:-70},{worldX:5961, dy:-70},{worldX:6001, dy:-70},
+      {worldX:7597, dy:-20},{worldX:7637, dy:-20},{worldX:7677, dy:-20},
+      {worldX:8206, dy:-20},{worldX:8246, dy:-20},{worldX:8286, dy:-20},
+      {worldX:8860, dy:-70},{worldX:8900, dy:-70},{worldX:8940, dy:-70},
+      {worldX:9506, dy:-20},{worldX:9546, dy:-20},{worldX:9586, dy:-20},
+    ],
+  },
+];
+
+// ---------- State ----------
+let levelIndex = 0;
+let level = null;
+let distance = 0;
+let scrollSpeed = 4.5;
+let score = 0, combo = 0, bestCombo = 0, lives = 3;
+let gameState = 'playing'; // playing, transition, over, complete
+let stateTimer = 0;
+let keys = {};
+let elapsedFrames = 0;
+
+const player = {
+  state: 'run', // run, jump, slide
+  y: 0, vy: 0,
+  w: 30, h: 46,
+  slideT: 0,
+  invuln: 0,
+  squashT: 0,
+};
+
+let particles = [];
+let shakeTime = 0, shakeMag = 0;
+let beatPulse = 0;
+
+function loadLevel(idx) {
+  level = LEVELS[idx];
+  distance = 0;
+  scrollSpeed = level.baseSpeed;
+  level.obstacles.forEach(o => { o.hit = false; o.passed = false; });
+  level.gems.forEach(g => { g.taken = false; });
+  player.state = 'run'; player.y = 0; player.vy = 0; player.slideT = 0; player.invuln = 60;
+  document.getElementById('levelStat').textContent = `LEVEL ${idx+1}/2`;
+}
+
+function resetGame() {
+  score = 0; combo = 0; bestCombo = 0; lives = 3;
+  levelIndex = 0;
+  gameState = 'playing';
+  document.getElementById('msg').style.display = 'none';
+  loadLevel(0);
+  if (audioCtx) startMusic();
+}
+
+// ---------- Input ----------
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyR') resetGame();
+  if (e.code === 'Space' || e.code === 'ArrowUp') doJump();
+  if (e.code === 'ArrowDown' || e.code === 'KeyS') doSlide();
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+});
+document.addEventListener('keyup', e => keys[e.code] = false);
+
+function doJump() {
+  if (gameState !== 'playing') return;
+  if (player.state !== 'run') return;
+  player.state = 'jump';
+  player.vy = JUMP_VY;
+  spawnDust(PLAYER_SX + player.w/2, GROUND_Y, 6);
+  sfx.jump();
+}
+function doSlide() {
+  if (gameState !== 'playing') return;
+  if (player.state !== 'run') return;
+  player.state = 'slide';
+  player.slideT = SLIDE_FRAMES;
+  sfx.slide();
+}
+
+// ---------- Touch controls ----------
+const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+if (isTouchDevice) document.body.classList.add('touch-mode');
+function updateOrientation() {
+  const portrait = window.innerHeight > window.innerWidth;
+  document.body.classList.toggle('portrait', portrait && isTouchDevice);
+}
+updateOrientation();
+window.addEventListener('resize', updateOrientation);
+window.addEventListener('orientationchange', updateOrientation);
+
+function bindButton(el, onPress) {
+  let activePointerId = null;
+  const press = (e) => {
+    if (activePointerId !== null) return;
+    activePointerId = e.pointerId;
+    el.setPointerCapture(activePointerId);
+    el.classList.add('pressed');
+    onPress();
+    e.preventDefault();
+  };
+  const release = (e) => {
+    if (e.pointerId !== activePointerId) return;
+    activePointerId = null;
+    el.classList.remove('pressed');
+    e.preventDefault();
+  };
+  el.addEventListener('pointerdown', press);
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
+  el.addEventListener('pointerleave', release);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+bindButton(document.getElementById('jumpBtn'), doJump);
+bindButton(document.getElementById('slideBtn'), doSlide);
+
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+let lastTouchEnd = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTouchEnd <= 300) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
+
+// ---------- Audio (synthesized 8-bit, original composition) ----------
+let audioCtx = null, masterGain, sfxGain, musicGain;
+let musicOn = true, musicStarted = false;
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain(); masterGain.gain.value = 0.9;
+  sfxGain = audioCtx.createGain(); sfxGain.gain.value = 0.55;
+  musicGain = audioCtx.createGain(); musicGain.gain.value = 0.2;
+  sfxGain.connect(masterGain); musicGain.connect(masterGain); masterGain.connect(audioCtx.destination);
+}
+function beep(freq, dur, type='square', vol=1, when=0, slideTo=null) {
+  if (!audioCtx || !musicOn) return;
+  const t0 = audioCtx.currentTime + when;
+  const osc = audioCtx.createOscillator(); const g = audioCtx.createGain();
+  osc.type = type; osc.frequency.setValueAtTime(freq, t0);
+  if (slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(slideTo,1), t0+dur);
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(vol, t0+0.006);
+  g.gain.exponentialRampToValueAtTime(0.001, t0+dur);
+  osc.connect(g); g.connect(sfxGain);
+  osc.start(t0); osc.stop(t0+dur+0.02);
+}
+function noiseBurst(dur, vol=1, when=0) {
+  if (!audioCtx || !musicOn) return;
+  const t0 = audioCtx.currentTime + when;
+  const bufSize = audioCtx.sampleRate*dur;
+  const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i=0;i<bufSize;i++) data[i]=(Math.random()*2-1)*(1-i/bufSize);
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const g = audioCtx.createGain();
+  g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.001, t0+dur);
+  src.connect(g); g.connect(sfxGain); src.start(t0);
+}
+const sfx = {
+  jump: () => beep(440, 0.12, 'square', 0.45, 0, 880),
+  slide: () => beep(300, 0.14, 'sawtooth', 0.4, 0, 120),
+  gem: () => { const p = Math.min(combo, 12); beep(700 + p*40, 0.1, 'square', 0.4); },
+  hit: () => { noiseBurst(0.18, 0.6); beep(180, 0.25, 'sawtooth', 0.4, 0.02, 60); },
+  levelclear: () => { [523,659,784,1047,1319].forEach((f,i)=>beep(f,0.15,'square',0.4,i*0.11)); },
+  complete: () => { [523,659,784,1047,1319,1568].forEach((f,i)=>beep(f,0.18,'square',0.45,i*0.12)); },
+  gameover: () => { [392,349,330,262].forEach((f,i)=>beep(f,0.3,'triangle',0.4,i*0.28)); },
+};
+
+const TEMPO = 168;
+const STEP = 60 / TEMPO / 4;
+let leadPattern, bassPattern;
+function setMusicForLevel(idx) {
+  if (idx === 0) {
+    leadPattern = [659,0,784,0, 988,0,784,0, 659,0,784,0, 988,0,1175,0,
+                   1047,0,988,0, 784,0,988,0, 659,0,523,0, 587,0,659,0];
+    bassPattern = [330,0,0,330, 330,0,0,330, 220,0,0,220, 220,0,0,262,
+                   247,0,0,247, 247,0,0,247, 196,0,0,196, 220,0,0,220];
+  } else {
+    leadPattern = [880,0,1047,0, 1319,0,1047,0, 880,0,1047,0, 1319,0,1568,0,
+                   1397,0,1319,0, 1047,0,1319,0, 880,0,698,0, 784,0,880,0];
+    bassPattern = [440,0,440,0, 440,0,440,0, 294,0,294,0, 294,0,349,0,
+                   330,0,330,0, 330,0,330,0, 262,0,262,0, 294,0,294,0];
+  }
+}
+let musicStep = 0, nextNoteTime = 0, musicTimerId = null;
+function scheduleMusicStep() {
+  const lf = leadPattern[musicStep % leadPattern.length];
+  const bf = bassPattern[musicStep % bassPattern.length];
+  const when = Math.max(0, nextNoteTime - audioCtx.currentTime);
+  if (lf) beep(lf, STEP*0.85, 'square', 0.16, when);
+  if (bf) beep(bf, STEP*0.9, 'triangle', 0.26, when);
+  if (musicStep % 4 === 0) { beatPulseQueue.push(when); }
+  nextNoteTime += STEP; musicStep++;
+}
+let beatPulseQueue = [];
+function musicLoop() {
+  if (!audioCtx) return;
+  while (nextNoteTime < audioCtx.currentTime + 0.1) scheduleMusicStep();
+  musicTimerId = setTimeout(musicLoop, 25);
+}
+function startMusic() {
+  setMusicForLevel(levelIndex);
+  musicStarted = true; nextNoteTime = audioCtx.currentTime + 0.05; musicStep = 0;
+  musicLoop();
+}
+function stopMusic() { musicStarted = false; if (musicTimerId) clearTimeout(musicTimerId); }
+function toggleMusic() {
+  musicOn = !musicOn;
+  document.getElementById('muteBtn').textContent = musicOn ? '🔊' : '🔇';
+  if (audioCtx) masterGain.gain.value = musicOn ? 0.9 : 0;
+}
+function primeAudio() {
+  initAudio();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  startMusic();
+}
+window.addEventListener('keydown', primeAudio, { once: true });
+window.addEventListener('pointerdown', primeAudio, { once: true });
+document.getElementById('muteBtn').addEventListener('click', e => { e.stopPropagation(); toggleMusic(); });
+document.getElementById('muteBtn').addEventListener('pointerdown', e => e.stopPropagation());
+
+// ---------- Particles & FX ----------
+function spawnDust(x, y, n) {
+  for (let i=0;i<n;i++) {
+    particles.push({x, y, vx:(Math.random()-0.5)*2.5, vy:-Math.random()*2, life:20+Math.random()*10, size:3+Math.random()*3, color:'rgba(255,255,255,0.7)'});
+  }
+}
+function spawnBurst(x, y, color, n) {
+  for (let i=0;i<n;i++) {
+    const a = Math.random()*Math.PI*2, sp = 1.5+Math.random()*3.5;
+    particles.push({x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, life:30+Math.random()*20, size:2+Math.random()*3, color});
+  }
+}
+function updateParticles() {
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.life--;
+  }
+  particles = particles.filter(p => p.life > 0);
+}
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life/40);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+}
+function shake(mag, time) { shakeMag = mag; shakeTime = time; }
+
+// ---------- Game logic ----------
+function updatePlayer() {
+  if (player.invuln > 0) player.invuln--;
+
+  if (player.state === 'jump') {
+    player.vy += GRAVITY;
+    player.y += player.vy;
+    if (player.y >= 0) {
+      player.y = 0; player.vy = 0; player.state = 'run';
+      spawnDust(PLAYER_SX + player.w/2, GROUND_Y, 5);
+    }
+  } else if (player.state === 'slide') {
+    player.slideT--;
+    if (player.slideT <= 0) player.state = 'run';
+  }
+}
+
+function hitBox() {
+  if (player.state === 'jump') return { x: PLAYER_SX, y: GROUND_Y + player.y - player.h, w: player.w, h: player.h };
+  if (player.state === 'slide') return { x: PLAYER_SX - 6, y: GROUND_Y - 24, w: player.w + 10, h: 24 };
+  return { x: PLAYER_SX, y: GROUND_Y - player.h, w: player.w, h: player.h };
+}
+
+function onHit() {
+  if (player.invuln > 0) return;
+  lives--;
+  combo = 0;
+  player.invuln = 100;
+  shake(8, 16);
+  spawnBurst(PLAYER_SX + player.w/2, GROUND_Y - player.h/2, '#ff4d4d', 22);
+  sfx.hit();
+  document.getElementById('livesStat').textContent = '♥ '.repeat(Math.max(lives,0)).trim();
+  if (lives <= 0) {
+    gameState = 'over';
+    stopMusic();
+    setTimeout(sfx.gameover, 200);
+    showMsg('GAME OVER<br><span style="font-size:16px">Score: ' + score + ' — press R to retry</span>');
+  }
+}
+
+function updateObstaclesAndGems() {
+  const pb = hitBox();
+  for (const o of level.obstacles) {
+    if (o.hit || o.passed) continue;
+    const sx = PLAYER_SX + (o.worldX - distance);
+    const ow = 40;
+    if (sx + ow < PLAYER_SX - 60) { o.passed = true; continue; }
+    const overlapX = sx < pb.x + pb.w && sx + ow > pb.x;
+    if (overlapX) {
+      const safe = (o.type === 'jump' && player.state === 'jump') || (o.type === 'duck' && player.state === 'slide');
+      if (!safe) {
+        o.hit = true;
+        onHit();
+      } else if (!o.scored) {
+        o.scored = true;
+        combo++; bestCombo = Math.max(bestCombo, combo);
+        score += 20 * Math.max(1, Math.floor(combo/5)+1);
+        showCombo();
+      }
+    }
+  }
+  for (const g of level.gems) {
+    if (g.taken) continue;
+    const sx = PLAYER_SX + (g.worldX - distance);
+    if (sx < -20 || sx > W + 20) continue;
+    const gy = GROUND_Y + g.dy - 10;
+    const dx = (sx - (pb.x + pb.w/2));
+    const dyv = (gy - (pb.y + pb.h/2));
+    if (Math.sqrt(dx*dx + dyv*dyv) < 26) {
+      g.taken = true;
+      combo++; bestCombo = Math.max(bestCombo, combo);
+      score += 10 + combo;
+      spawnBurst(sx, gy, '#ffe14d', 10);
+      sfx.gem();
+      showCombo();
+    }
+  }
+}
+
+let comboShowTimer = 0;
+function showCombo() {
+  const el = document.getElementById('combo');
+  el.textContent = 'COMBO x' + combo;
+  el.style.opacity = combo > 1 ? '1' : '0';
+  el.style.transform = 'translate(-50%,0) scale(1.3)';
+  comboShowTimer = 20;
+}
+
+function update() {
+  elapsedFrames++;
+  if (gameState === 'playing') {
+    const t = Math.min(1, distance / level.length);
+    scrollSpeed = level.baseSpeed + (level.maxSpeed - level.baseSpeed) * t;
+    distance += scrollSpeed;
+    updatePlayer();
+    updateObstaclesAndGems();
+
+    if (distance >= level.length) {
+      if (levelIndex === LEVELS.length - 1) {
+        gameState = 'complete';
+        stopMusic();
+        sfx.complete();
+        spawnBurst(W/2, H/2, '#ffe14d', 60);
+        showMsg('DN RUN COMPLETE!<br><span style="font-size:16px">Final Score: ' + score + ' — press R to play again</span>');
+      } else {
+        gameState = 'transition';
+        stateTimer = 90;
+        stopMusic();
+        sfx.levelclear();
+        showMsg('LEVEL ' + (levelIndex+1) + ' CLEAR!');
+      }
+    }
+  } else if (gameState === 'transition') {
+    stateTimer--;
+    if (stateTimer <= 0) {
+      levelIndex++;
+      loadLevel(levelIndex);
+      gameState = 'playing';
+      document.getElementById('msg').style.display = 'none';
+      if (audioCtx) startMusic();
+    }
+  }
+
+  if (comboShowTimer > 0) {
+    comboShowTimer--;
+    if (comboShowTimer === 0) document.getElementById('combo').style.transform = 'translate(-50%,0) scale(1)';
+  } else if (combo === 0) {
+    document.getElementById('combo').style.opacity = '0';
+  }
+
+  updateParticles();
+  if (shakeTime > 0) shakeTime--;
+
+  document.getElementById('scoreStat').textContent = 'SCORE: ' + score;
+  document.getElementById('progressFill').style.width = (level ? Math.min(100, distance/level.length*100) : 0) + '%';
+}
+
+function showMsg(html) {
+  const m = document.getElementById('msg');
+  m.innerHTML = html;
+  m.style.display = 'block';
+}
+
+// ---------- Drawing ----------
+function drawBackground() {
+  const th = level.theme;
+  const grd = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  grd.addColorStop(0, th.sky1);
+  grd.addColorStop(1, th.sky2);
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, GROUND_Y);
+
+  // sun
+  const pulse = 1 + beatPulse * 0.06;
+  ctx.fillStyle = th.sun;
+  ctx.globalAlpha = 0.85;
+  ctx.beginPath();
+  ctx.arc(W*0.78, 120, 55*pulse, 0, Math.PI*2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // parallax mountains (slow layer)
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  const par1 = (distance * 0.15) % 300;
+  for (let i=-1;i<4;i++) {
+    const bx = i*300 - par1;
+    ctx.beginPath();
+    ctx.moveTo(bx, GROUND_Y);
+    ctx.lineTo(bx+150, GROUND_Y-120);
+    ctx.lineTo(bx+300, GROUND_Y);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // faster layer
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  const par2 = (distance * 0.4) % 200;
+  for (let i=-1;i<5;i++) {
+    const bx = i*200 - par2;
+    ctx.beginPath();
+    ctx.moveTo(bx, GROUND_Y);
+    ctx.lineTo(bx+100, GROUND_Y-70);
+    ctx.lineTo(bx+200, GROUND_Y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // horizon grid (perspective-ish scrolling lines)
+  ctx.strokeStyle = th.grid;
+  ctx.lineWidth = 2;
+  const gridOffset = distance % 40;
+  for (let x = -gridOffset; x < W; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, GROUND_Y); ctx.lineTo(x, GROUND_Y+92); ctx.stroke();
+  }
+
+  // ground
+  ctx.fillStyle = th.ground;
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+  ctx.strokeStyle = th.accent;
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, GROUND_Y); ctx.lineTo(W, GROUND_Y); ctx.stroke();
+
+  // speed stripes on ground
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  const stripeOffset = distance % 60;
+  for (let x = -stripeOffset; x < W; x += 60) {
+    ctx.fillRect(x, GROUND_Y+10, 30, 6);
+  }
+}
+
+function drawObstacle(o) {
+  const sx = PLAYER_SX + (o.worldX - distance);
+  if (sx < -60 || sx > W + 20) return;
+  const th = level.theme;
+  if (o.type === 'jump') {
+    ctx.fillStyle = o.hit ? '#555' : '#ff4d4d';
+    ctx.beginPath();
+    ctx.moveTo(sx, GROUND_Y);
+    ctx.lineTo(sx+20, GROUND_Y-46);
+    ctx.lineTo(sx+40, GROUND_Y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+  } else {
+    const barY = GROUND_Y - 30;
+    ctx.fillStyle = o.hit ? '#555' : th.accent;
+    ctx.fillRect(sx, barY, 40, 12);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.strokeRect(sx, barY, 40, 12);
+    // support posts
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillRect(sx+2, barY+12, 4, GROUND_Y-(barY+12));
+    ctx.fillRect(sx+34, barY+12, 4, GROUND_Y-(barY+12));
+  }
+}
+
+function drawGem(g) {
+  if (g.taken) return;
+  const sx = PLAYER_SX + (g.worldX - distance);
+  if (sx < -20 || sx > W + 20) return;
+  const gy = GROUND_Y + g.dy - 10;
+  const s = 8 + Math.sin(elapsedFrames*0.15 + g.worldX) * 2;
+  ctx.save();
+  ctx.translate(sx, gy);
+  ctx.rotate(elapsedFrames*0.05);
+  ctx.fillStyle = '#ffe14d';
+  ctx.beginPath();
+  ctx.moveTo(0,-s); ctx.lineTo(s,0); ctx.lineTo(0,s); ctx.lineTo(-s,0);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#fff8d0'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.restore();
+}
+
+function drawPlayer() {
+  if (player.invuln > 0 && Math.floor(player.invuln/4)%2===0) return;
+  const th = level.theme;
+  let x = PLAYER_SX, y, w = player.w, h = player.h;
+  if (player.state === 'jump') {
+    y = GROUND_Y + player.y - h;
+    h = 46 + Math.max(0, -player.vy)*0.6; // stretch on the way up
+  } else if (player.state === 'slide') {
+    y = GROUND_Y - 24; h = 24; w = player.w + 8;
+  } else {
+    y = GROUND_Y - h;
+    h = 46 - Math.abs(Math.sin(elapsedFrames*0.35))*3; // running squash bounce
+  }
+  ctx.fillStyle = th.accent;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, w, h);
+  // visor/eye accent
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x + w - 10, y + 6, 6, 6);
+}
+
+function draw() {
+  ctx.save();
+  if (shakeTime > 0) {
+    ctx.translate((Math.random()-0.5)*shakeMag, (Math.random()-0.5)*shakeMag);
+  }
+  drawBackground();
+  for (const o of level.obstacles) drawObstacle(o);
+  for (const g of level.gems) drawGem(g);
+  if (gameState === 'playing' || gameState === 'transition') drawPlayer();
+  drawParticles();
+  ctx.restore();
+}
+
+function loop() {
+  // decay beat pulse, trigger from queued beats
+  while (beatPulseQueue.length && beatPulseQueue[0] <= 0.001) { beatPulseQueue.shift(); beatPulse = 1; }
+  beatPulseQueue = beatPulseQueue.map(t => t - 1/60);
+  beatPulse *= 0.9;
+
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loadLevel(0);
+document.getElementById('livesStat').textContent = '♥ ♥ ♥';
+loop();
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# PUBLIC REPO — this repo is published to GitHub Pages.
+# Only game HTML and the landing page belong here. Never add skills,
+# prompts, notes, or anything with a key in it.
+
+# Secrets — never commit
+.env
+*.env
+credentials.json
+token.json
+*.pem
+*.key
+
+# Dev tooling — local only
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+*.code-workspace
