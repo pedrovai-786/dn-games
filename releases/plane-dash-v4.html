@@ -1,0 +1,3291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Plane.dash V4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0e1a;
+    --panel:#12172a;
+    --panel2:#1a2140;
+    --line:#3a4270;
+    --accent:#ffd23f;
+    --accent2:#ff5d73;
+    --accent3:#3fe0ff;
+    --ok:#4ce07a;
+    --text:#eef1ff;
+    --muted:#8a92c2;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none;}
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:#000; overflow:hidden; overscroll-behavior:none; touch-action:none;
+    font-family:'Press Start 2P', monospace;
+    color:var(--text);
+  }
+  #root{
+    position:fixed; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    background:
+      radial-gradient(circle at 30% 20%, #1a2246 0%, #05070f 60%),
+      #05070f;
+  }
+  #stage{
+    position:relative;
+    width:960px; height:540px;
+    background:#000;
+    image-rendering:pixelated;
+    box-shadow:0 0 0 4px #000, 0 0 40px rgba(63,224,255,.15);
+    flex-shrink:0;
+    display:flex; flex-direction:column;
+  }
+  #gameArea{
+    position:relative;
+    flex:1 1 auto;
+    min-height:0;
+    overflow:hidden;
+    z-index:1;
+  }
+  /* touch-action does NOT inherit, so the `touch-action:none` on html/body
+     above does not reach these. Without it the browser treats a fast repeat
+     tap on the climb button as double-tap-to-zoom. `manipulation` kills the
+     double-tap gesture while leaving the menu scrollable. */
+  #gameArea, #gameCanvas, #thrustPad, #thrustBtn, .pix-btn, .hexInner{
+    touch-action:manipulation;
+  }
+  #gameCanvas{
+    position:absolute; inset:0; width:100%; height:100%;
+    display:block; image-rendering:pixelated;
+  }
+
+  /* ---------- shared UI bits ---------- */
+  .pix-btn{
+    font-family:'Press Start 2P', monospace;
+    background:var(--panel2);
+    border:3px solid var(--line);
+    color:var(--text);
+    padding:12px 16px;
+    font-size:12px;
+    cursor:pointer;
+    box-shadow: 4px 4px 0 #000;
+    letter-spacing:1px;
+    transition:transform .05s linear;
+  }
+  .pix-btn:active{ transform:translate(3px,3px); box-shadow:1px 1px 0 #000; }
+  .pix-btn.primary{ background:var(--accent); color:#251a00; border-color:#8a6a00; }
+  .pix-btn.danger{ background:var(--accent2); color:#3a0008; border-color:#8a0018; }
+  .pix-btn.ghost{ background:transparent; }
+  .pix-btn.small{ padding:8px 10px; font-size:10px; }
+  .pix-btn:disabled{ opacity:.35; cursor:default; }
+
+  h1,h2,h3,p{ margin:0; }
+
+  /* ---------- MENU SCREEN ---------- */
+  #menuScreen{
+    position:absolute; inset:0;
+    z-index:20;
+    display:flex; flex-direction:column; align-items:center;
+    justify-content:center;
+    padding:10px 16px;
+    background:
+      linear-gradient(180deg,#0d1230 0%, #060815 70%, #04060d 100%);
+    overflow-y:auto;
+    gap:8px;
+  }
+  .title-wrap{ text-align:center; flex-shrink:0; }
+  .title{
+    font-size:26px; color:var(--accent);
+    text-shadow: 3px 3px 0 #ff5d73, 6px 6px 0 rgba(0,0,0,.5);
+    letter-spacing:2px;
+  }
+  .subtitle{ font-size:7px; color:var(--accent3); margin-top:6px; letter-spacing:1px;}
+  .menu-columns{
+    display:flex; gap:18px; width:100%; max-width:900px;
+    align-items:flex-start; justify-content:center; flex-wrap:wrap;
+  }
+  .menu-section{ flex:1 1 320px; min-width:260px; max-width:440px; }
+  .menu-label{ font-size:9px; color:var(--muted); margin-bottom:6px; letter-spacing:1px;}
+  .plane-row{ display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
+  .plane-card{
+    background:var(--panel); border:2px solid var(--line);
+    padding:4px; cursor:pointer; width:76px; text-align:center;
+    box-shadow:2px 2px 0 #000;
+  }
+  .plane-card canvas{ image-rendering:pixelated; display:block; margin:0 auto; width:60px; height:40px; }
+  .plane-card .pname{ font-size:6px; margin-top:3px; color:var(--muted); line-height:1.4;}
+  .plane-card.selected{ border-color:var(--accent); background:#2a2410; box-shadow:2px 2px 0 var(--accent);}
+  .plane-card.selected .pname{ color:var(--accent); }
+
+  .diff-row{ display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
+  .diff-card{
+    background:var(--panel); border:2px solid var(--line);
+    padding:7px 6px; cursor:pointer; width:100px; text-align:center;
+    box-shadow:2px 2px 0 #000;
+  }
+  .diff-card .dname{ font-size:8px; margin-bottom:4px; }
+  .diff-card .ddesc{ font-size:6px; color:var(--muted); line-height:1.5; }
+  .diff-card .dbest{ font-size:6px; color:var(--accent); margin-top:4px; min-height:8px; }
+  .diff-card.selected{ box-shadow:2px 2px 0 currentColor; }
+  .diff-easy{ color:var(--ok); }
+  .diff-normal{ color:var(--accent3); }
+  .diff-hard{ color:var(--accent2); }
+  .diff-demon{ color:#c85bff; }
+  .diff-card.diff-easy.selected{ border-color:var(--ok); background:#0c2517;}
+  .diff-card.diff-normal.selected{ border-color:var(--accent3); background:#0c2130;}
+  .diff-card.diff-hard.selected{ border-color:var(--accent2); background:#2a0c14;}
+  .diff-card.diff-demon.selected{ border-color:#c85bff; background:#1e0c2a;}
+
+  #playBtn{ margin-top:4px; font-size:14px; padding:12px 34px; flex-shrink:0; }
+  .hint{ font-size:6.5px; color:var(--muted); margin-top:6px; text-align:center; line-height:1.7; flex-shrink:0; }
+
+  @media (max-height:420px){
+    .title{ font-size:20px; }
+    .subtitle{ display:none; }
+    .hint{ display:none; }
+    #playBtn{ margin-top:2px; padding:10px 28px; font-size:12px; }
+  }
+
+  /* ---------- HUD BAR (outside the playable area) ---------- */
+  #hudBar{
+    display:none;
+    flex:0 0 auto;
+    background:#0a0e1a;
+    border-bottom:3px solid var(--line);
+    padding:6px 10px;
+    align-items:center; justify-content:space-between;
+    gap:8px;
+    font-size:9px;
+    overflow:hidden;
+  }
+  #hudLeftGroup, #hudRightGroup{
+    display:flex; align-items:center; gap:6px; flex-wrap:nowrap;
+  }
+  .hud-chip{
+    background:rgba(255,255,255,.04); border:2px solid var(--line);
+    padding:4px 7px; display:flex; align-items:center; gap:5px;
+    white-space:nowrap;
+  }
+  .bar-label{ font-size:7px; color:var(--muted); }
+  .bar-track{ width:78px; height:9px; background:#000; border:2px solid var(--line); position:relative; overflow:hidden; }
+  .bar-fill{ height:100%; width:100%; background:var(--ok); transition:width .15s linear; position:absolute; left:0; top:0; }
+  #fuelFill{
+    background: linear-gradient(90deg,#ff5d73,#ffd23f,#4ce07a);
+    background-size:78px 100%; background-position:0 0;
+  }
+  #fuelFill.pulse{ animation:fuelPulse .35s ease; }
+  @keyframes fuelPulse{ 0%{ filter:brightness(1);} 40%{ filter:brightness(2.2);} 100%{ filter:brightness(1);} }
+  /* Low-fuel warning: the bar itself goes red and throbs, so running dry is
+     telegraphed instead of arriving as a silent death. */
+  #fuelBox.warn{ border-color:var(--accent2); animation:fuelWarnBox .8s steps(2,end) infinite; }
+  #fuelBox.warn .bar-label{ color:var(--accent2); }
+  #fuelFill.warn{ background:var(--accent2); }
+  @keyframes fuelWarnBox{ 0%,100%{ background:rgba(255,93,115,.05);} 50%{ background:rgba(255,93,115,.30);} }
+  #fuelInfBox{ color:var(--ok); font-size:8px; }
+  #shieldPips{ display:flex; gap:3px; }
+  .pip{ width:9px; height:9px; background:var(--accent3); border:1px solid #000; }
+  .pip.off{ background:#1a2140; }
+  #timerBox{ font-size:13px; color:var(--accent); font-weight:bold; }
+  #scoreBox{ font-size:10px; color:var(--text); }
+  #levelBox{ font-size:7px; color:var(--muted); }
+  #buffBox{ font-size:6.5px; color:var(--accent3); display:none; line-height:1.4; max-width:110px; }
+  #muteBtn, #resetBtn{ pointer-events:auto; padding:5px 7px; font-size:9px; box-shadow:2px 2px 0 #000; }
+
+  @media (max-height:420px){
+    #hudBar{ padding:3px 6px; font-size:7px; }
+    .hud-chip{ padding:3px 5px; }
+    .bar-track{ width:56px; height:7px; }
+    #timerBox{ font-size:11px; }
+  }
+
+  /* ---------- ANIMATION PREVIEW MODE (?preview=levelclear) ---------- */
+  #previewBar{ display:none; }
+  #previewGuide{ display:none; }
+  body.preview-mode #root{ align-items:flex-start; padding-top:8px; }
+  body.preview-mode #previewBar{
+    display:flex; flex-direction:column; gap:6px;
+    position:fixed; left:0; right:0; bottom:0; z-index:60;
+    background:#080b16; border-top:3px solid var(--line);
+    padding:8px 12px; font-size:8px;
+  }
+  .pv-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .pv-lbl{ color:var(--muted); font-size:7px; letter-spacing:1px;
+           display:flex; align-items:center; gap:4px; }
+  .pv-readout{ color:var(--muted); font-size:7px; gap:18px; letter-spacing:1px; }
+  .pv-readout b{ color:var(--accent); }
+  #previewBar select, #previewBar input[type=checkbox]{
+    font-family:'Press Start 2P', monospace; font-size:7px;
+    background:var(--panel2); color:var(--text);
+    border:2px solid var(--line); padding:2px;
+  }
+  #pvScrub{ flex:1 1 240px; min-width:180px; accent-color:var(--accent); }
+  #pvTime{ min-width:110px; color:var(--accent); font-size:8px; }
+  /* Dashed box around the burger's full-size art bounds; position set from JS
+     so it tracks BURGER_X/Y/SCALE rather than drifting from the real values. */
+  body.preview-mode #previewGuide.on{
+    display:block; position:absolute; z-index:4; pointer-events:none;
+    border:2px dashed rgba(63,224,255,.75);
+  }
+
+  /* ---------- Controls ---------- */
+  #thrustPad{
+    position:absolute; right:4%; bottom:6%; left:auto; top:auto;
+    width:150px; height:150px;
+    display:flex; align-items:center; justify-content:center;
+    z-index:3;
+  }
+  #thrustBtn{
+    width:132px; height:132px;
+    clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0% 50%);
+    background: var(--accent3);
+    box-shadow:6px 6px 0 #000, 0 0 24px rgba(63,224,255,.35);
+    display:flex; align-items:center; justify-content:center;
+    pointer-events:auto;
+    transition:transform .06s linear;
+  }
+  #thrustBtn .hexInner{
+    width:calc(100% - 10px); height:calc(100% - 10px);
+    clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0% 50%);
+    background:radial-gradient(circle at 35% 30%, #2a3260, #0e1330 70%);
+    display:flex; align-items:center; justify-content:center;
+    color:var(--accent3); font-size:9px; text-align:center; line-height:1.4;
+  }
+  #thrustBtn.active{
+    background: var(--accent);
+    transform:scale(.94);
+    box-shadow:3px 3px 0 #000, 0 0 30px rgba(255,210,63,.55);
+  }
+  #thrustBtn.active .hexInner{
+    background:radial-gradient(circle at 35% 30%, #ffd23f, #b57e00 70%);
+    color:#3a2600;
+  }
+
+  /* ---------- Overlays ---------- */
+  .overlay{
+    position:absolute; inset:0; z-index:10;
+    background:rgba(3,4,10,.86);
+    display:none; align-items:center; justify-content:center; flex-direction:column;
+    text-align:center; padding:20px;
+  }
+  .overlay.show{ display:flex; }
+  .overlay h2{ font-size:22px; margin-bottom:14px; letter-spacing:1px; }
+  .overlay .stat-line{ font-size:10px; color:var(--muted); margin:6px 0; }
+  .overlay .stat-line b{ color:var(--accent); }
+  .overlay-btns{ display:flex; gap:12px; margin-top:20px; flex-wrap:wrap; justify-content:center;}
+  #crashOverlay h2{ color:var(--accent2); }
+  #levelCompleteOverlay h2{ color:var(--ok); }
+  #winOverlay h2{ color:var(--accent); }
+  #outOfFuelNote{ display:none; }
+
+  .rotate-hint{
+    position:fixed; inset:0; z-index:100; background:#04060d;
+    display:none; align-items:center; justify-content:center; flex-direction:column;
+    text-align:center; padding:30px; gap:16px;
+  }
+  /* Show on any touch device held in portrait. Keyed on pointer:coarse rather
+     than a pixel height — modern phones are 850-950px tall in portrait, so the
+     old max-height:700px gate never matched and the hint never appeared.
+     Desktops report pointer:fine and are still excluded. */
+  @media (orientation:portrait) and (pointer:coarse){
+    .rotate-hint.enabled{ display:flex; }
+  }
+  .rotate-hint h2{ font-size:16px; color:var(--accent); letter-spacing:1px; }
+  .rotate-hint p{ font-size:9px; color:var(--muted); line-height:1.9; max-width:260px; }
+  .rotate-icon{
+    width:64px; height:44px; position:relative;
+    animation: rotatePhone 1.6s ease-in-out infinite;
+  }
+  .rotate-icon .phone{
+    position:absolute; top:2px; left:20px; width:24px; height:40px;
+    border:3px solid var(--accent3); background:#0d1230;
+  }
+  @keyframes rotatePhone{
+    0%, 15%{ transform:rotate(0deg); }
+    50%, 65%{ transform:rotate(-90deg); }
+    100%{ transform:rotate(-90deg); }
+  }
+
+  /* ---------- win animation ---------- */
+  #winSkipBtn{
+    position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+    z-index:12; display:none; opacity:.75; font-size:8px; padding:8px 14px;
+  }
+  #winAnimText{
+    position:absolute; top:14%; left:0; right:0; text-align:center;
+    z-index:11; pointer-events:none;
+  }
+  #winAnimText span{
+    font-size:20px; color:var(--accent);
+    text-shadow:3px 3px 0 #ff5d73, 6px 6px 0 rgba(0,0,0,.5);
+    padding:6px 14px; letter-spacing:1px;
+  }
+
+  ::-webkit-scrollbar{ width:8px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="stage">
+
+    <!-- MENU -->
+    <div id="menuScreen">
+      <div class="title-wrap">
+        <div class="title">PLANE.DASH</div>
+        <div class="subtitle">▲ HOLD TO CLIMB · RELEASE TO DIVE · TAP TO LEVEL OUT ▲</div>
+      </div>
+
+      <div class="menu-columns">
+        <div class="menu-section">
+          <div class="menu-label">01 — CHOOSE YOUR PLANE</div>
+          <div class="plane-row" id="planeRow"></div>
+        </div>
+
+        <div class="menu-section">
+          <div class="menu-label">02 — CHOOSE DIFFICULTY</div>
+          <div class="diff-row" id="diffRow"></div>
+        </div>
+      </div>
+
+      <button class="pix-btn primary" id="playBtn">▶ PLAY</button>
+      <div class="hint">5 LEVELS · 59 SEC EACH · A NEW WORLD EVERY LEVEL<br>FUEL ONLY MATTERS ON HARD+ · SHIELD &amp; PHASE ALSO VACUUM UP PICKUPS<br>LEVEL 5 HIDES HAZARDS YOU HAVE NOT SEEN — AND A WINGMAN TO SURVIVE THEM</div>
+    </div>
+
+    <!-- HUD BAR — lives above the play area, never overlaps gameplay -->
+    <div id="hudBar">
+      <div id="hudLeftGroup">
+        <div class="hud-chip" id="scoreBox">SCORE 0</div>
+        <div class="hud-chip" id="fuelBox">
+          <span class="bar-label">FUEL</span>
+          <div class="bar-track"><div class="bar-fill" id="fuelFill"></div></div>
+        </div>
+        <div class="hud-chip" id="fuelInfBox" style="display:none;">
+          <span class="bar-label">FUEL</span><span>∞</span>
+        </div>
+        <div class="hud-chip">
+          <span class="bar-label">SHIELD</span>
+          <div id="shieldPips">
+            <div class="pip off"></div><div class="pip off"></div><div class="pip off"></div>
+          </div>
+        </div>
+        <div class="hud-chip" id="buffBox"></div>
+      </div>
+      <div id="hudRightGroup">
+        <div class="hud-chip" id="levelBox">LVL 1/5 · NORMAL</div>
+        <div class="hud-chip" id="timerBox">59</div>
+        <button class="pix-btn small ghost" id="muteBtn">🔊</button>
+        <button class="pix-btn small danger" id="resetBtn">⟲</button>
+      </div>
+    </div>
+
+    <!-- GAME AREA — the actual playable canvas, HUD stays outside this -->
+    <div id="gameArea">
+      <canvas id="gameCanvas" width="960" height="540"></canvas>
+
+      <div id="thrustPad" style="display:none;">
+        <div id="thrustBtn"><div class="hexInner">HOLD<br>TO<br>CLIMB</div></div>
+      </div>
+
+      <!-- Frame guide: outlines the 1/5-of-canvas area target during preview -->
+      <div id="previewGuide"></div>
+
+      <div id="winAnimText" style="display:none;"><span id="winAnimTextSpan">LEVEL 5 CLEAR!</span></div>
+      <button class="pix-btn ghost" id="winSkipBtn">SKIP ▶</button>
+
+      <!-- OVERLAYS -->
+      <div class="overlay" id="crashOverlay">
+        <h2 id="crashTitle">CRASHED!</h2>
+        <div class="stat-line" id="crashReason">You hit an obstacle.</div>
+        <div class="stat-line">SCORE: <b id="crashScore">0</b></div>
+        <div class="overlay-btns">
+          <button class="pix-btn primary" id="retryBtn">↻ RETRY LEVEL</button>
+          <button class="pix-btn ghost" id="crashMenuBtn">☰ MENU</button>
+        </div>
+      </div>
+
+      <div class="overlay" id="levelCompleteOverlay">
+        <h2>LEVEL CLEAR!</h2>
+        <div class="stat-line" id="lcLevelName">LEVEL 1</div>
+        <div class="stat-line">SCORE: <b id="lcScore">0</b></div>
+        <div class="stat-line" id="lcBonus"></div>
+        <div class="stat-line" id="lcStats"></div>
+        <div class="overlay-btns">
+          <button class="pix-btn primary" id="nextLevelBtn">▶ NEXT LEVEL</button>
+          <button class="pix-btn ghost" id="lcMenuBtn">☰ MENU</button>
+        </div>
+      </div>
+
+      <div class="overlay" id="winOverlay">
+        <h2>★ ALL LEVELS CLEAR ★</h2>
+        <div class="stat-line">FINAL SCORE: <b id="winScore">0</b></div>
+        <div class="stat-line">DIFFICULTY: <b id="winDiff">NORMAL</b></div>
+        <div class="stat-line" id="winBest"></div>
+        <div class="overlay-btns">
+          <button class="pix-btn primary" id="winMenuBtn">☰ MAIN MENU</button>
+        </div>
+      </div>
+
+      <div class="overlay" id="startCountdownOverlay">
+        <h2 id="countdownText">3</h2>
+      </div>
+    </div>
+  </div>
+
+  <div class="rotate-hint enabled" id="rotateHint">
+    <div class="rotate-icon"><div class="phone"></div></div>
+    <h2>FLIP YOUR PHONE SIDEWAYS</h2>
+    <p>PLANE.DASH IS A LANDSCAPE GAME.<br>ROTATE YOUR DEVICE TO START THE RUNWAY.</p>
+  </div>
+</div>
+
+<!-- ANIMATION PREVIEW BAR — only shown when ?preview=levelclear is in the URL -->
+<div id="previewBar">
+  <div class="pv-row">
+    <button class="pix-btn small primary" id="pvPlayPause">❚❚ PAUSE</button>
+    <button class="pix-btn small" id="pvReplay">↻ REPLAY</button>
+    <label class="pv-lbl" id="pvLoopLbl">LOOP <input type="checkbox" id="pvLoop" checked></label>
+    <label class="pv-lbl" id="pvGuideLbl">GUIDE <input type="checkbox" id="pvGuide"></label>
+    <label class="pv-lbl">SPEED
+      <select id="pvSpeed">
+        <option value="0.25">0.25x</option>
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1x</option>
+      </select>
+    </label>
+    <label class="pv-lbl">LEVEL
+      <select id="pvLevel">
+        <option value="0">1 · DAWN RUNWAY</option>
+        <option value="1">2 · AIRFIELD</option>
+        <option value="2">3 · NEON HARBOR</option>
+        <option value="3">4 · MAGMA DRIFT</option>
+        <option value="4">5 · ORBITAL VOID</option>
+      </select>
+    </label>
+    <label class="pv-lbl">PLANE <select id="pvPlane"></select></label>
+    <button class="pix-btn small ghost" id="pvExit">▶ PLAY GAME</button>
+  </div>
+  <div class="pv-row" id="pvScrubRow">
+    <span class="pv-lbl" id="pvTime">0.00s / 3.00s</span>
+    <input type="range" id="pvScrub" min="0" max="3" step="0.01" value="0">
+  </div>
+  <div class="pv-row pv-readout" id="pvBurgerRow">
+    <span>BURGER AREA <b id="pvArea">–</b> OF CANVAS (TARGET 20%)</span>
+    <span>PEAK SIZE <b id="pvSize">–</b> ON 960×540</span>
+    <span>PHASE <b id="pvPhase">–</b></span>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* =========================================================
+   AUDIO ENGINE — procedural 8-bit music & sfx (Web Audio API)
+   ========================================================= */
+const Audio8 = (function(){
+  let ctx = null, master = null, musicGain = null, sfxGain = null;
+  let muted = false;
+  let musicTimer = null;
+  let currentTrack = -1;
+
+  function ensureCtx(){
+    if(!ctx){
+      ctx = new (window.AudioContext||window.webkitAudioContext)();
+      master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+      musicGain = ctx.createGain(); musicGain.gain.value = 0.16; musicGain.connect(master);
+      sfxGain = ctx.createGain(); sfxGain.gain.value = 0.28; sfxGain.connect(master);
+    }
+    if(ctx.state === "suspended") ctx.resume();
+  }
+
+  function tone(freq, t, dur, type, gainNode, vol){
+    if(!ctx) return;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(gainNode);
+    osc.start(t); osc.stop(t + dur + 0.02);
+  }
+
+  function sweep(f1,f2,t,dur,type,gainNode,vol){
+    if(!ctx) return;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(f1, t);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20,f2), t+dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    osc.connect(g); g.connect(gainNode);
+    osc.start(t); osc.stop(t+dur+0.02);
+  }
+
+  function noiseBurst(t, dur, gainNode, vol){
+    if(!ctx) return;
+    const bufSize = ctx.sampleRate * dur;
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for(let i=0;i<bufSize;i++) data[i] = (Math.random()*2-1) * (1 - i/bufSize);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const g = ctx.createGain(); g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    src.connect(g); g.connect(gainNode);
+    src.start(t);
+  }
+
+  // TRACKS — one per level. `notes` is a 16-step melody loop; `march` swaps the
+  // gentle every-other-step bass for a drum kit (kick + snare) so level 5 reads
+  // as a military march rather than another chiptune loop.
+  const TRACKS = [
+    { notes:[392,392,440,494,440,392,349,392, 392,392,440,494,440,494,523,494], step:0.155, wave:"square" },
+    { notes:[440,523,494,440, 392,440,349,392, 440,523,587,523, 494,440,392,349], step:0.135, wave:"square" },
+    { notes:[349,392,440,392, 523,494,440,392, 349,392,440,494, 587,523,494,440], step:0.118, wave:"sawtooth" },
+    { notes:[494,587,554,494, 440,494,440,392, 587,659,622,587, 523,494,440,392], step:0.10, wave:"square" },
+    // LEVEL 5 — D minor military march, ~112bpm in eighths. Dotted phrasing on
+    // the melody, kick on beats 1 & 3, snare backbeat with a 16th roll into it.
+    { notes:[587,587,440,587, 698,659,587,523, 587,587,440,587, 784,698,659,587],
+      step:0.134, wave:"sawtooth", march:true }
+  ];
+
+  // Per-level ambient bed: quiet, continuous, sits under the music. [freqs, type, gain]
+  const AMBIENCE = [
+    null,
+    { freqs:[68, 71], type:"sawtooth", gain:0.030, lfo:5.5 },   // L2 distant prop drone
+    null,
+    { freqs:[42, 45.5], type:"sine",   gain:0.055, lfo:0.7 },   // L4 volcanic rumble
+    { freqs:[60, 90.3], type:"sine",   gain:0.038, lfo:0.25 }   // L5 station hum
+  ];
+  let ambNodes = null;
+
+  function startAmbience(levelIdx){
+    const spec = AMBIENCE[levelIdx];
+    if(!spec || !ctx) return;
+    const g = ctx.createGain(); g.gain.value = 0; g.connect(musicGain);
+    g.gain.linearRampToValueAtTime(spec.gain, ctx.currentTime + 1.2);
+    const oscs = spec.freqs.map(f=>{
+      const o = ctx.createOscillator();
+      o.type = spec.type; o.frequency.value = f;
+      o.connect(g); o.start();
+      return o;
+    });
+    // Slow wobble so the bed breathes instead of sitting as a dead tone.
+    const lfo = ctx.createOscillator(), lfoGain = ctx.createGain();
+    lfo.frequency.value = spec.lfo; lfoGain.gain.value = spec.gain*0.45;
+    lfo.connect(lfoGain); lfoGain.connect(g.gain); lfo.start();
+    ambNodes = { g, oscs, lfo };
+  }
+  function stopAmbience(){
+    if(!ambNodes) return;
+    const { g, oscs, lfo } = ambNodes;
+    ambNodes = null;
+    try{
+      g.gain.cancelScheduledValues(ctx.currentTime);
+      g.gain.setValueAtTime(g.gain.value, ctx.currentTime);
+      g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.25);
+      oscs.forEach(o=>o.stop(ctx.currentTime + 0.3));
+      lfo.stop(ctx.currentTime + 0.3);
+    }catch(e){ /* context already torn down */ }
+  }
+
+  function playMusic(levelIdx){
+    ensureCtx();
+    stopMusic();
+    currentTrack = levelIdx;
+    startAmbience(levelIdx);
+    const track = TRACKS[levelIdx % TRACKS.length];
+    let stepIndex = 0;
+    function scheduleNext(){
+      if(currentTrack !== levelIdx) return;
+      const now = ctx.currentTime + 0.03;
+      const s = stepIndex % 16;
+      const freq = track.notes[stepIndex % track.notes.length];
+
+      if(track.march){
+        // Melody: brassy, clipped, with the odd steps shortened for march bite.
+        tone(freq, now, track.step*(s%2===0 ? 0.95 : 0.55), track.wave, musicGain, 0.14);
+        tone(freq/2, now, track.step*0.9, "square", musicGain, 0.07);
+        if(s%4 === 0){                                  // kick on 1 & 3
+          sweep(120, 45, now, 0.14, "sine", musicGain, 0.34);
+        }
+        if(s%8 === 4){                                  // snare backbeat
+          noiseBurst(now, 0.11, musicGain, 0.20);
+        }
+        if(s%8 === 3 || s%8 === 7){                     // 16th roll into the beat
+          noiseBurst(now, 0.045, musicGain, 0.10);
+          noiseBurst(now + track.step*0.5, 0.045, musicGain, 0.12);
+        }
+      } else {
+        tone(freq, now, track.step*0.92, track.wave, musicGain, 0.15);
+        if(stepIndex % 2 === 0) tone(freq/2, now, track.step*1.6, "triangle", musicGain, 0.10);
+      }
+      stepIndex++;
+      musicTimer = setTimeout(scheduleNext, track.step*1000);
+    }
+    scheduleNext();
+  }
+
+  function stopMusic(){
+    currentTrack = -1;
+    if(musicTimer){ clearTimeout(musicTimer); musicTimer=null; }
+    stopAmbience();
+  }
+
+  function sfxPickup(kind){
+    ensureCtx();
+    const t = ctx.currentTime;
+    if(kind==="fuel"){ tone(523,t,0.09,"square",sfxGain,0.22); tone(784,t+0.08,0.12,"square",sfxGain,0.22); }
+    else if(kind==="shield"){ tone(392,t,0.1,"triangle",sfxGain,0.24); tone(523,t+0.09,0.1,"triangle",sfxGain,0.24); tone(659,t+0.18,0.14,"triangle",sfxGain,0.24); }
+    else if(kind==="slow"){ sweep(880,220,t,0.28,"sine",sfxGain,0.2); }
+    else if(kind==="star"){ tone(659,t,0.07,"square",sfxGain,0.22); tone(880,t+0.06,0.07,"square",sfxGain,0.22); tone(1175,t+0.12,0.16,"square",sfxGain,0.24); }
+    else if(kind==="coin"){ tone(988,t,0.05,"square",sfxGain,0.18); tone(1319,t+0.045,0.08,"square",sfxGain,0.18); }
+    else if(kind==="magnet"){ sweep(220,660,t,0.22,"sawtooth",sfxGain,0.2); tone(880,t+0.2,0.1,"square",sfxGain,0.2); }
+    else if(kind==="ghost"){ sweep(300,900,t,0.35,"sine",sfxGain,0.16); sweep(900,300,t+0.15,0.35,"sine",sfxGain,0.12); }
+    else if(kind==="wingman"){
+      // little squadron fanfare — two planes calling to each other
+      tone(523,t,0.09,"square",sfxGain,0.22); tone(659,t+0.08,0.09,"square",sfxGain,0.22);
+      tone(784,t+0.16,0.09,"square",sfxGain,0.22); tone(1047,t+0.24,0.2,"square",sfxGain,0.24);
+      sweep(200,600,t+0.1,0.3,"sawtooth",sfxGain,0.10);
+    }
+    else { tone(600,t,0.08,"square",sfxGain,0.2); }
+  }
+  function sfxWingBolt(){ ensureCtx(); const t=ctx.currentTime; sweep(1400,500,t,0.11,"square",sfxGain,0.14); }
+  function sfxWingDown(){
+    ensureCtx(); const t=ctx.currentTime;
+    sweep(500,90,t,0.4,"sawtooth",sfxGain,0.22); noiseBurst(t,0.25,sfxGain,0.22);
+  }
+  function sfxLaserOn(){ ensureCtx(); const t=ctx.currentTime; sweep(180,900,t,0.16,"sawtooth",sfxGain,0.10); }
+  function sfxCrusher(){ ensureCtx(); const t=ctx.currentTime; sweep(160,50,t,0.18,"square",sfxGain,0.16); noiseBurst(t,0.09,sfxGain,0.12); }
+  function sfxFuelWarn(){ ensureCtx(); const t=ctx.currentTime; tone(880,t,0.07,"square",sfxGain,0.16); tone(660,t+0.09,0.09,"square",sfxGain,0.16); }
+  function sfxThrust(){ ensureCtx(); tone(220, ctx.currentTime, 0.06, "square", sfxGain, 0.06); }
+  function sfxCrash(){
+    ensureCtx(); const t = ctx.currentTime;
+    noiseBurst(t, 0.45, sfxGain, 0.5);
+    sweep(300,40,t,0.4,"sawtooth",sfxGain,0.3);
+  }
+  function sfxShieldHit(){
+    ensureCtx(); const t = ctx.currentTime;
+    sweep(700,300,t,0.15,"square",sfxGain,0.25);
+    noiseBurst(t,0.1,sfxGain,0.15);
+  }
+  function sfxLevelComplete(){
+    ensureCtx(); const t = ctx.currentTime;
+    [523,659,784,1047].forEach((f,i)=> tone(f, t+i*0.12, 0.18, "square", sfxGain, 0.25));
+  }
+  function sfxWin(){
+    ensureCtx(); const t = ctx.currentTime;
+    [523,659,784,1047,784,1047,1319].forEach((f,i)=> tone(f, t+i*0.11, 0.2, "square", sfxGain, 0.26));
+  }
+  function sfxClick(){ ensureCtx(); tone(700, ctx.currentTime, 0.05, "square", sfxGain, 0.18); }
+  function sfxFuelOut(){
+    ensureCtx(); const t = ctx.currentTime;
+    sweep(500,80,t,0.6,"sine",sfxGain,0.25);
+  }
+  function sfxBurgerAppear(){
+    ensureCtx(); const t = ctx.currentTime;
+    tone(440,t,0.08,"triangle",sfxGain,0.2);
+    tone(659,t+0.08,0.08,"triangle",sfxGain,0.2);
+    tone(880,t+0.16,0.16,"triangle",sfxGain,0.22);
+  }
+  function sfxChomp(){
+    ensureCtx(); const t = ctx.currentTime;
+    noiseBurst(t, 0.14, sfxGain, 0.35);
+    tone(180,t,0.09,"square",sfxGain,0.2);
+    tone(784,t+0.14,0.1,"square",sfxGain,0.2);
+    tone(988,t+0.22,0.14,"square",sfxGain,0.22);
+  }
+
+  function setMuted(m){
+    muted = m;
+    if(master) master.gain.value = muted ? 0 : 0.9;
+  }
+  function isMuted(){ return muted; }
+
+  return { ensureCtx, playMusic, stopMusic, sfxPickup, sfxThrust, sfxCrash, sfxShieldHit,
+           sfxLevelComplete, sfxWin, sfxClick, sfxFuelOut, sfxBurgerAppear, sfxChomp,
+           sfxWingBolt, sfxWingDown, sfxLaserOn, sfxCrusher, sfxFuelWarn, setMuted, isMuted };
+})();
+
+/* =========================================================
+   CANVAS / SPRITE HELPERS  — everything drawn from rectangles
+   ========================================================= */
+const canvas = document.getElementById("gameCanvas");
+const ctx2d = canvas.getContext("2d");
+ctx2d.imageSmoothingEnabled = false;
+const CW = 960, CH = 540;
+
+function rect(x,y,w,h,color){ ctx2d.fillStyle=color; ctx2d.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h)); }
+function rectA(x,y,w,h,color,alpha){ ctx2d.globalAlpha=alpha; rect(x,y,w,h,color); ctx2d.globalAlpha=1; }
+
+const PLANE_STYLES = [
+  { name:"CRIMSON FALCON", body:"#ff4d5e", accent:"#ffffff", dark:"#a8202f", variant:"classic" },
+  { name:"COBALT STREAK",  body:"#3fa9ff", accent:"#e8faff", dark:"#1a5aa8", variant:"jet" },
+  { name:"EMERALD DASH",   body:"#3ee06b", accent:"#ffe94d", dark:"#1a8a3d", variant:"dart" },
+  { name:"AMBER BLAZE",    body:"#ff9d3f", accent:"#7a1010", dark:"#a85a1a", variant:"biplane" },
+  { name:"VIOLET NOVA",    body:"#b25bff", accent:"#ff9de8", dark:"#5a1aa8", variant:"stealth" }
+];
+
+// Draw a blocky pixel-style plane facing right, centered at (x,y), scale s
+function drawPlane(gx, gy, style, s, opts){
+  opts = opts || {};
+  const b = style.body, a = style.accent, d = style.dark;
+  ctx2d.save();
+  ctx2d.translate(gx, gy);
+  if(opts.tilt) ctx2d.rotate(opts.tilt);
+
+  const flicker = opts.flicker && (Math.floor(performance.now()/60)%2===0);
+  if(flicker){ ctx2d.globalAlpha = 0.35; }
+
+  // phase/ghost aura — shifting rainbow ring, plane is briefly untouchable
+  if(opts.phase){
+    const hue = (performance.now()/4) % 360;
+    ctx2d.strokeStyle = `hsla(${hue},90%,65%,0.8)`;
+    ctx2d.lineWidth = 4*s;
+    ctx2d.beginPath(); ctx2d.arc(0,0,38*s,0,Math.PI*2); ctx2d.stroke();
+    ctx2d.globalAlpha = (flicker?0.35:1) * 0.55;
+  }
+
+  // magnet aura — pulsing amber field
+  if(opts.magnet){
+    const pulse = 26 + Math.sin(performance.now()/90)*6;
+    ctx2d.strokeStyle = "rgba(255,157,63,0.55)";
+    ctx2d.lineWidth = 2*s;
+    ctx2d.beginPath(); ctx2d.arc(0,0,pulse*s,0,Math.PI*2); ctx2d.stroke();
+  }
+
+  // shield bubble
+  if(opts.shield){
+    ctx2d.strokeStyle = "rgba(63,224,255,0.85)";
+    ctx2d.lineWidth = 3*s;
+    ctx2d.beginPath();
+    ctx2d.arc(0,0, 34*s, 0, Math.PI*2);
+    ctx2d.stroke();
+    ctx2d.fillStyle = "rgba(63,224,255,0.12)";
+    ctx2d.fill();
+  }
+  if(opts.glow){
+    ctx2d.fillStyle = "rgba(255,210,63,0.18)";
+    ctx2d.beginPath(); ctx2d.arc(0,0,30*s,0,Math.PI*2); ctx2d.fill();
+  }
+
+  const B = (x,y,w,h,c)=> rect(-22*s + x*s, -10*s + y*s, w*s, h*s, c);
+
+  // tail fin
+  B(0,-2,6,10, d);
+  // fuselage core blocks
+  B(6,2,26,8, b);
+  B(2,4,6,4, b);
+  B(30,3,8,6, d);
+  // nose
+  B(36,4,6,4, a);
+  // cockpit
+  B(20,0,8,4, a);
+  // wing (variant shapes)
+  if(style.variant === "classic"){
+    B(14,10,16,4, d);
+    B(10,-4,10,4, b);
+  } else if(style.variant === "jet"){
+    B(10,10,22,4, d);
+    B(16,-6,14,5, b);
+  } else if(style.variant === "dart"){
+    B(16,9,10,4, d);
+    B(20,-4,12,3, b);
+  } else if(style.variant === "biplane"){
+    B(10,10,18,3, d);
+    B(10,-6,18,3, d);
+    B(16,-3,4,7, "#00000055");
+  } else if(style.variant === "stealth"){
+    B(6,11,28,3, d);
+    B(14,-7,20,4, b);
+  }
+  // exhaust flame if thrusting
+  if(opts.thrust){
+    const flick = 5 + Math.sin(performance.now()/35)*3;
+    B(-6,2,8+flick,8, "#ff5d73");
+    B(-4,3,6+flick,6, "#ffd23f");
+    B(-2,4,3+flick,4, "#fff2b0");
+  }
+
+  ctx2d.globalAlpha = 1;
+  ctx2d.restore();
+}
+
+/* =========================================================
+   LEVEL / DIFFICULTY DATA
+   ========================================================= */
+// sizeMul scales obstacle bulk with difficulty. It is deliberately capped at
+// spawn time (see MIN_CORRIDOR) — Demon already has tight gaps and high speed,
+// so unbounded growth there produces unpassable walls rather than hard ones.
+const DIFFICULTIES = [
+  { key:"easy",   label:"EASY",       cls:"diff-easy",   speed:0.72, spawnMul:1.35, gapMul:1.35, sizeMul:0.90, desc:"GENTLE SKIES.\nNO FUEL NEEDED." },
+  { key:"normal", label:"NORMAL",     cls:"diff-normal", speed:1.0,  spawnMul:1.0,  gapMul:1.0,  sizeMul:1.00, desc:"BALANCED.\nNO FUEL NEEDED." },
+  { key:"hard",   label:"HARD",       cls:"diff-hard",   speed:1.32, spawnMul:0.78, gapMul:0.8,  sizeMul:1.18, desc:"BIGGER, TIGHTER.\nWATCH YOUR FUEL." },
+  { key:"demon",  label:"EASY DEMON", cls:"diff-demon",  speed:1.62, spawnMul:0.58, gapMul:0.62, sizeMul:1.35, desc:"HUGE + BRUTAL.\nFUEL RUNS OUT FAST." }
+];
+
+// `theme` selects the animated landscape in drawBackground().
+const LEVELS = [
+  { name:"LEVEL 1 · DAWN RUNWAY",  theme:"dawn",    sky:["#1c2a55","#33477e"], ground:"#101733", accent:"#3fa9ff", speedMul:1.0,  densityMul:1.0 },
+  { name:"LEVEL 2 · AIRFIELD APPROACH", theme:"airfield", sky:["#2b3f74","#8fb6d8"], ground:"#20283f", accent:"#ffd23f", speedMul:1.12, densityMul:1.15 },
+  { name:"LEVEL 3 · NEON HARBOR",  theme:"harbor",  sky:["#170a2e","#3a1266"], ground:"#0d0620", accent:"#c85bff", speedMul:1.24, densityMul:1.3 },
+  { name:"LEVEL 4 · MAGMA DRIFT",  theme:"magma",   sky:["#3a0b0b","#7a1f12"], ground:"#200606", accent:"#ff5d3f", speedMul:1.38, densityMul:1.5 },
+  { name:"LEVEL 5 · ORBITAL VOID", theme:"orbital", sky:["#04040c","#160a30"], ground:"#020208", accent:"#3fe0ff", speedMul:1.55, densityMul:1.7 }
+];
+
+const LEVEL_DURATION = 59;
+const FINAL_LEVEL = 4;              // level 5, zero-indexed — gate for L5-only content
+const MIN_CORRIDOR = 130;           // px of open sky an obstacle must always leave
+
+/* =========================================================
+   GAME STATE
+   ========================================================= */
+let state = "menu"; // menu | countdown | playing | crashed | levelcomplete | win
+let selectedPlaneIdx = 0;
+let selectedDiff = 1;
+let currentLevel = 0;
+
+let plane, obstacles, powerups, particles, floatTexts;
+let scrollX = 0;
+let worldT = 0;      // seconds of world time; drives every background animation
+let timeLeft = LEVEL_DURATION;
+let score = 0;
+let runScoreStart = 0;
+let scoreMultiplier = 1, scoreMultiplierTimer = 0;
+let slowFactor = 1, slowTimer = 0;
+let fuel = 100;
+let shieldCharges = 0;
+const SHIELD_MAX = 3;
+let invuln = 0;
+let magnetTimer = 0;
+let phaseTimer = 0;
+let spawnSchedule = [];
+let lastTime = 0;
+let holding = false;
+let pressStartT = 0;
+let levelingTimer = 0;
+let crashReasonText = "";
+let rafId = null;
+let wingman = null;              // level-5 escort: absorbs a hit, shoots hazards
+let bolts = [];                  // wingman projectiles
+let shakeT = 0, shakeMag = 0;    // screen shake, decays to zero
+let fuelWarnTimer = 0;           // throttles the low-fuel beep
+let levelStats = null;           // per-level end-card counters
+let approach = null;             // final-approach state once spawning has stopped
+
+// Preview harness state (see "ANIMATION PREVIEW MODE" at the bottom of this
+// file). Inert unless the page is opened with ?preview=levelclear.
+const PREVIEW = { on:false, paused:false, speed:1, mode:null };
+
+const PLANE_X = 150;
+const GROUND_MARGIN = 26;
+
+function resetRunState(){
+  plane = { x: PLANE_X, y: CH/2, vy: 0 };
+  obstacles = [];
+  powerups = [];
+  particles = [];
+  floatTexts = [];
+  scrollX = 0;
+  worldT = 0;
+  timeLeft = LEVEL_DURATION;
+  fuel = 100;
+  shieldCharges = 0;
+  invuln = 0;
+  scoreMultiplier = 1; scoreMultiplierTimer = 0;
+  slowFactor = 1; slowTimer = 0;
+  magnetTimer = 0;
+  phaseTimer = 0;
+  holding = false;
+  levelingTimer = 0;
+  wingman = null;
+  bolts = [];
+  shakeT = 0; shakeMag = 0;
+  fuelWarnTimer = 0;
+  lastStructuralGap = null;
+  structuralCooldown = 0;
+  approach = { closed:false, beaconX:null, coinsDropped:false };
+  levelStats = { pickups:0, cleared:0, hits:0, wingSaves:0 };
+  buildSpawnSchedule();
+}
+
+/* =========================================================
+   BEST SCORES — one per difficulty, survives reloads
+   ========================================================= */
+const BEST_KEY = "planedash.v4.best.";
+function getBest(diffKey){
+  try{ return parseInt(localStorage.getItem(BEST_KEY + diffKey) || "0", 10) || 0; }
+  catch(e){ return 0; }   // private mode / storage disabled — best is simply not tracked
+}
+function setBest(diffKey, val){
+  try{ localStorage.setItem(BEST_KEY + diffKey, String(Math.floor(val))); }catch(e){}
+}
+
+/* =========================================================
+   SPAWN SCHEDULE — deterministic-ish so fuel is always fair
+   ========================================================= */
+function fuelMatters(){
+  const k = DIFFICULTIES[selectedDiff].key;
+  return k === "hard" || k === "demon";
+}
+
+function buildSpawnSchedule(){
+  spawnSchedule = [];
+  const diff = DIFFICULTIES[selectedDiff];
+  const lvl = LEVELS[currentLevel];
+  const densityMul = lvl.densityMul / diff.spawnMul;
+
+  // Obstacles: start at t=2.5, interval shrinks with density
+  let baseInterval = 1.55 / densityMul;
+  baseInterval = Math.max(0.5, baseInterval);
+  let t = 2.2;
+  let n = 0;
+  while(t < LEVEL_DURATION - 1.5){
+    spawnSchedule.push({ t, type:"obstacle", n });
+    n++;
+    // slight rhythmic variance for interest
+    const jitter = (n % 5 === 0) ? baseInterval*0.5 : (Math.sin(n*1.7)*0.18);
+    t += baseInterval + jitter;
+  }
+
+  // Fuel only matters on Hard / Easy Demon — guarantee >=3 across the level (need >=2)
+  if(fuelMatters()){
+    [16, 34, 50].forEach((ft,i)=>{
+      spawnSchedule.push({ t: ft + (i%2===0?0:0.6), type:"powerup", kind:"fuel" });
+    });
+  }
+
+  // Coins: small, frequent, constantly rewarding
+  for(let ct = 5; ct < LEVEL_DURATION - 3; ct += 5.5){
+    spawnSchedule.push({ t: ct + Math.random()*1.4, type:"powerup", kind:"coin" });
+  }
+
+  // Bigger powerups: shield / slow-mo / star / magnet / ghost, spread through the level.
+  // Levels below Hard get extra variety in the fuel-free slots.
+  const extras = [
+    { t:8,  kind:"star" },   { t:12, kind:"shield" },
+    { t:17, kind:"magnet" }, { t:21, kind:"star" },
+    { t:26, kind:"slow" },   { t:30, kind:"ghost" },
+    { t:35, kind:"shield" }, { t:40, kind:"magnet" },
+    { t:44, kind:"star" },   { t:48, kind:"ghost" },
+    { t:53, kind:"star" },   { t:56, kind:"slow" }
+  ];
+  // WINGMAN is level 5 only — the surprise hazards there are what it answers.
+  if(currentLevel === FINAL_LEVEL){
+    extras.push({ t:9, kind:"wingman" }, { t:28, kind:"wingman" }, { t:46, kind:"wingman" });
+  }
+  extras.forEach(e=> spawnSchedule.push({ t:e.t, type:"powerup", kind:e.kind }));
+
+  spawnSchedule.sort((a,b)=>a.t-b.t);
+}
+
+/* ---------------------------------------------------------
+   END-OF-LEVEL QUIET WINDOW
+   ---------------------------------------------------------
+   v3 cut spawning off at fixed times (obstacles 57.5s, powerups 56s), but how
+   long a spawn lives on screen depends on world speed, which varies ~3.5x
+   across level/difficulty and again with slow-mo. On Easy that meant the last
+   several pickups were unreachable (a coin spawned at t=56 arrived at t=60.7)
+   and live obstacles were still mid-screen when the burger wiped the arrays.
+   These cutoffs are measured in distance instead, recomputed per frame from
+   the *current* world speed, so slow-mo is handled for free.
+   --------------------------------------------------------- */
+function obstacleCutoff(worldSpeed){        // time needed to cross and exit
+  return (CW + 120) / Math.max(40, worldSpeed) + 0.6;
+}
+function powerupCutoff(worldSpeed){         // time needed to reach the plane
+  return (CW - PLANE_X + 90) / Math.max(40, worldSpeed) + 0.5;
+}
+
+/* =========================================================
+   OBSTACLE / POWERUP FACTORIES
+   ========================================================= */
+function randRange(a,b){ return a + Math.random()*(b-a); }
+
+// Deadly rectangles for an obstacle *right now*. Everything downstream —
+// collision, wingman bolts, drawing hit-tests — goes through this, so adding a
+// hazard shape means describing its rects once.
+function obstacleRects(ob){
+  if(ob.type === "laserGate"){
+    // One emitter, anchored to the ceiling or the floor. The housing is always
+    // solid; the beam only bites while lit — and neither ever reaches across,
+    // so there is always open sky on the far side.
+    const top = (ob.orient === "top");
+    const hy = top ? 0 : CH - GROUND_MARGIN - ob.housing;
+    const r = [{ x:ob.x, y:hy, w:ob.w, h:GROUND_MARGIN + ob.housing }];
+    if(ob.beamOn){
+      const by = top ? GROUND_MARGIN + ob.housing
+                     : CH - GROUND_MARGIN - ob.housing - ob.beamLen;
+      r.push({ x:ob.x+ob.w*0.30, y:by, w:ob.w*0.40, h:ob.beamLen });
+    }
+    return r;
+  }
+  if(ob.type === "crusher"){
+    const gy = ob.gapCenter, gh = ob.gapH;
+    return [
+      { x:ob.x, y:0, w:ob.w, h:Math.max(0, gy-gh/2) },
+      { x:ob.x, y:gy+gh/2, w:ob.w, h:Math.max(0, CH-(gy+gh/2)) }
+    ];
+  }
+  if(ob.type === "monolith"){
+    return [
+      { x:ob.x, y:0, w:ob.w, h:ob.gapY },
+      { x:ob.x, y:ob.gapY+ob.gapH, w:ob.w, h:CH-(ob.gapY+ob.gapH) }
+    ];
+  }
+  if(ob.type === "rotbar"){
+    // Sample squares along the spinning bar — exact enough at this size and far
+    // cheaper than rotated-rect SAT.
+    const out = [];
+    const cx = ob.x + ob.w/2, cy = ob.y;
+    const dx = Math.cos(ob.ang), dy = Math.sin(ob.ang);
+    const half = ob.len/2, S = ob.thick;
+    for(let i=-4;i<=4;i++){
+      const d = (i/4)*half;
+      out.push({ x:cx+dx*d - S/2, y:cy+dy*d - S/2, w:S, h:S });
+    }
+    out.push({ x:cx-11, y:cy-11, w:22, h:22 });    // hub
+    return out;
+  }
+  // legacy shapes: one inset rect (the inset is the forgiveness margin)
+  return [{ x:ob.x+4, y:ob.y+4, w:(ob.w||40)-8, h:ob.h-8 }];
+}
+
+// Worst-case-over-time danger bands, used to place pickups where they can
+// actually be reached. Movers report their full sine sweep, not their current y.
+function obstacleForbidden(ob){
+  if(ob.type === "laserGate"){
+    const reach = GROUND_MARGIN + ob.housing + ob.beamLen;
+    return ob.orient === "top" ? [[-999, reach]] : [[CH - reach, CH+999]];
+  }
+  if(ob.type === "monolith"){
+    return [[-999, ob.gapY], [ob.gapY+ob.gapH, CH+999]];
+  }
+  if(ob.type === "crusher"){
+    const g = ob.gapMin;
+    return [[-999, ob.gapCenter-g/2], [ob.gapCenter+g/2, CH+999]];
+  }
+  if(ob.type === "rotbar"){
+    return [[ob.y - ob.len/2 - ob.thick, ob.y + ob.len/2 + ob.thick]];
+  }
+  const amp = ob.moving ? ob.amp : 0;
+  const top = (ob.baseY != null ? ob.baseY : ob.y) - amp;
+  return [[top, top + ob.h + amp*2]];
+}
+
+function spawnObstacleAt(elapsed, seq){
+  const diff = DIFFICULTIES[selectedDiff];
+  const lvl = LEVELS[currentLevel];
+  const progress = elapsed / LEVEL_DURATION; // 0..1, ramps difficulty within level
+  const sizeMul = (0.85 + progress*0.5) * (0.8 + lvl.densityMul*0.15) * diff.sizeMul;
+
+  let type;
+  if(currentLevel === FINAL_LEVEL){
+    // Level 5 leads with hazards the player has never seen. The share of them
+    // scales with difficulty: an Easy player meeting a laser gate for the first
+    // time should not be meeting three of them in a row.
+    const share = [0.42, 0.50, 0.56, 0.62][selectedDiff];
+    const roll = Math.random();
+    if(roll < share*0.28)      type = "laserGate";
+    else if(roll < share*0.56) type = "crusher";
+    else if(roll < share*0.82) type = "rotbar";
+    else if(roll < share)      type = "monolith";
+    else if(roll < share + (1-share)*0.38) type = "block";
+    else if(roll < share + (1-share)*0.72) type = "spike";
+    else                                    type = "spikeBlock";
+  } else {
+    const roll = Math.random();
+    if(roll < 0.36) type = "block";
+    else if(roll < 0.68) type = "spike";
+    else type = "spikeBlock";
+  }
+
+  let ob = { type, x: CW + 60, dead:false, age:0, destructible:true };
+
+  if(type === "block"){
+    const h = clampH(randRange(46,96) * Math.min(1.6,sizeMul));
+    const y = randRange(GROUND_MARGIN, CH-GROUND_MARGIN-h);
+    ob.w = randRange(34,52) * Math.min(1.4, diff.sizeMul);
+    ob.h = h; ob.y = y;
+    ob.moving = currentLevel >= 3 && Math.random() < 0.5;
+    ob.baseY = y; ob.amp = randRange(30,60); ob.freq = randRange(0.6,1.1); ob.phase = Math.random()*Math.PI*2;
+  } else if(type === "spike"){
+    const fromTop = Math.random() < 0.5;
+    const h = clampH(randRange(60,120) * Math.min(1.6,sizeMul));
+    ob.w = 40 * Math.min(1.35, diff.sizeMul);
+    ob.orient = fromTop ? "top" : "bottom";
+    ob.h = h;
+    ob.y = fromTop ? 0 : CH - h;
+  } else if(type === "spikeBlock"){
+    const h = clampH(randRange(44,64) * Math.min(1.6,sizeMul));
+    const y = randRange(GROUND_MARGIN+16, CH-GROUND_MARGIN-h-16);
+    ob.w = randRange(56,78) * Math.min(1.35, diff.sizeMul);
+    ob.h = h; ob.y = y;
+    ob.moving = currentLevel >= 2 && Math.random() < 0.55;
+    ob.baseY = y; ob.amp = randRange(26,50); ob.freq = randRange(0.5,0.95); ob.phase = Math.random()*Math.PI*2;
+  } else if(type === "laserGate"){
+    // A single emitter hanging from the ceiling or standing on the floor. The
+    // beam reaches part way across and pulses, so the timing is a chance to
+    // take the short line — never the only way through. The far side of the
+    // shaft stays open at all times.
+    ob.w = 34; ob.h = CH;
+    ob.orient = Math.random() < 0.5 ? "top" : "bottom";
+    ob.housing = 22;
+    const playable = CH - 2*GROUND_MARGIN;
+    // Reach grows with difficulty but always leaves a corridor and then some.
+    const maxReach = playable - ob.housing - (MIN_CORRIDOR + 40);
+    ob.beamLen = Math.min(maxReach, playable * randRange(0.30, 0.30 + 0.05*selectedDiff));
+    ob.period = randRange(1.35,1.75);
+    ob.onFrac = [0.42, 0.48, 0.54, 0.60][selectedDiff];
+    ob.phase = Math.random()*ob.period;
+    ob.beamOn = false; ob.wasOn = false;
+    ob.destructible = false;
+  } else if(type === "crusher"){
+    // Ceiling and floor slabs that slam shut and retract.
+    ob.w = randRange(54,72);  ob.h = CH;
+    ob.gapMin = gapFor(150, sizeMul);
+    ob.gapMax = ob.gapMin + randRange(120,180);
+    ob.gapCenter = randRange(CH*0.32, CH*0.68);
+    ob.gapH = ob.gapMax;
+    ob.period = randRange(1.5,2.1);
+    ob.phase = Math.random()*Math.PI*2;
+    ob.slammed = false;
+    ob.destructible = false;
+  } else if(type === "rotbar"){
+    // A bar spinning about a hub. Timing plus positioning at once.
+    ob.len = randRange(120,190) * Math.min(1.3, diff.sizeMul);
+    ob.thick = 16;
+    ob.w = 22; ob.h = 22;
+    ob.y = randRange(CH*0.28, CH*0.72);
+    ob.ang = Math.random()*Math.PI*2;
+    ob.spin = randRange(1.5,2.6) * (Math.random()<0.5 ? -1 : 1);
+  } else if(type === "monolith"){
+    // Full-height slab with one keyhole. Big, slow, unmissable.
+    ob.w = randRange(40,58) * Math.min(1.3, diff.sizeMul);
+    ob.h = CH;
+    ob.gapH = gapFor(190, sizeMul);
+    ob.gapY = randRange(GROUND_MARGIN+8, CH-GROUND_MARGIN-8-ob.gapH);
+    ob.destructible = false;
+  }
+  if(!ensureCorridor(ob)) return null;   // no flyable lane left — skip this one
+
+  // Full-height hazards force the player through one specific slot. Two of them
+  // back to back with distant slots is unflyable, so keep successive gaps within
+  // reach of each other. (Laser gates are no longer in this group — they leave
+  // a permanently open side, so they need no slot alignment.)
+  if(ob.type === "monolith" || ob.type === "crusher"){
+    const prev = lastStructuralGap;
+    if(prev != null){
+      const want = (ob.type === "crusher") ? ob.gapCenter : ob.gapY + ob.gapH/2;
+      const limited = Math.max(prev-190, Math.min(prev+190, want));
+      if(ob.type === "crusher"){
+        ob.gapCenter = Math.max(ob.gapMax/2+GROUND_MARGIN, Math.min(CH-ob.gapMax/2-GROUND_MARGIN, limited));
+      } else {
+        ob.gapY = Math.max(GROUND_MARGIN+8, Math.min(CH-GROUND_MARGIN-8-ob.gapH, limited - ob.gapH/2));
+      }
+    }
+    lastStructuralGap = (ob.type === "crusher") ? ob.gapCenter : ob.gapY + ob.gapH/2;
+    structuralCooldown = 0.55;   // breathing room before the next hazard
+  }
+  obstacles.push(ob);
+  return ob;
+}
+let lastStructuralGap = null;
+let structuralCooldown = 0;
+
+// Height clamp: whatever the difficulty multiplier asks for, an obstacle never
+// eats so much of the screen that no flyable corridor is left.
+function clampH(h){ return Math.min(h, CH - 2*GROUND_MARGIN - MIN_CORRIDOR); }
+
+/* ---------------------------------------------------------
+   CORRIDOR GUARANTEE
+   ---------------------------------------------------------
+   Clamping each obstacle on its own is not enough: two hazards that overlap
+   horizontally are flown as one wall. A rotor bar spans up to 250px, so at
+   Demon spacing it routinely shares a lane with its neighbour and the pair can
+   seal the screen. Before an obstacle is accepted we check the lane it lands
+   in, slide it into a slot that still leaves MIN_CORRIDOR, and drop it outright
+   if no such slot exists.
+   --------------------------------------------------------- */
+function xSpan(ob){
+  const w = (ob.type === "rotbar") ? ob.len : (ob.w || 40);
+  const left = (ob.type === "rotbar") ? ob.x - ob.len/2 : ob.x;
+  return [left, left + w];
+}
+function slotsFrom(list){
+  const bands = [];
+  for(const o of list) for(const b of obstacleForbidden(o)) bands.push(b);
+  bands.sort((a,b)=>a[0]-b[0]);
+  const out = [];
+  let cur = GROUND_MARGIN;
+  for(const b of bands){
+    if(b[0] > cur) out.push([cur, Math.min(b[0], CH-GROUND_MARGIN)]);
+    cur = Math.max(cur, b[1]);
+  }
+  if(cur < CH-GROUND_MARGIN) out.push([cur, CH-GROUND_MARGIN]);
+  return out.filter(s=>s[1] > s[0]).sort((a,b)=>(b[1]-b[0])-(a[1]-a[0]));
+}
+function biggestSlot(list){
+  const s = slotsFrom(list);
+  return s.length ? s[0][1]-s[0][0] : 0;
+}
+// Slide an obstacle's danger band so it starts at `top`.
+function moveBandTo(ob, top){
+  if(ob.type === "rotbar"){ ob.y = top + ob.len/2 + ob.thick; return true; }
+  if(ob.type === "block" || ob.type === "spikeBlock"){
+    const amp = ob.moving ? ob.amp : 0;
+    ob.baseY = top + amp; ob.y = ob.baseY; return true;
+  }
+  return false;   // spikes are anchored to an edge; gates are handled separately
+}
+
+function ensureCorridor(ob){
+  const [l, r] = xSpan(ob);
+  const neighbours = obstacles.filter(o=>{
+    const [l2, r2] = xSpan(o);
+    return !(r2 < l || l2 > r);
+  });
+  if(!neighbours.length) return true;
+  if(biggestSlot(neighbours.concat(ob)) >= MIN_CORRIDOR) return true;
+
+  const slots = slotsFrom(neighbours);            // room available without it
+  if(!slots.length || (slots[0][1]-slots[0][0]) < MIN_CORRIDOR) return false;
+
+  // Edge-anchored hazards can't be moved, only shortened: pull them back until
+  // a corridor reappears, and drop them if they'd have to shrink to nothing.
+  if(ob.type === "spike" || ob.type === "laserGate"){
+    const key = (ob.type === "spike") ? "h" : "beamLen";
+    const floorLen = (ob.type === "spike") ? 34 : 70;
+    while(ob[key] > floorLen){
+      ob[key] -= 14;
+      if(ob.type === "spike" && ob.orient === "bottom") ob.y = CH - ob.h;
+      if(biggestSlot(neighbours.concat(ob)) >= MIN_CORRIDOR) return true;
+    }
+    return false;
+  }
+
+  // Gated hazards: put the keyhole inside the roomiest existing slot.
+  if(ob.type === "monolith" || ob.type === "crusher"){
+    for(const s of slots){
+      const mid = (s[0]+s[1])/2;
+      if(ob.type === "crusher"){
+        if(s[1]-s[0] < ob.gapMin) continue;
+        ob.gapCenter = mid;
+      } else {
+        if(s[1]-s[0] < MIN_CORRIDOR) continue;
+        ob.gapY = Math.max(GROUND_MARGIN+8, Math.min(CH-GROUND_MARGIN-8-ob.gapH, mid - ob.gapH/2));
+      }
+      if(biggestSlot(neighbours.concat(ob)) >= MIN_CORRIDOR) return true;
+    }
+    return false;
+  }
+
+  // Solid hazards: find a slot big enough to hold the obstacle *and* the
+  // corridor, then park it against that slot's edge.
+  const band = obstacleForbidden(ob)[0];
+  const need = band[1] - band[0];
+  for(const s of slots){
+    if(s[1]-s[0] < need + MIN_CORRIDOR) continue;
+    // hug whichever edge of the slot is further from mid-screen
+    const top = (Math.abs(s[0]-CH/2) > Math.abs(s[1]-CH/2)) ? s[0] : s[1]-need;
+    if(!moveBandTo(ob, top)) continue;
+    if(biggestSlot(neighbours.concat(ob)) >= MIN_CORRIDOR) return true;
+  }
+  return false;
+}
+// Gap shrinks with difficulty/level but never below the corridor floor.
+function gapFor(base, sizeMul){
+  return Math.max(MIN_CORRIDOR, base * DIFFICULTIES[selectedDiff].gapMul * (2 - Math.min(1.6, sizeMul)));
+}
+
+/* ---------------------------------------------------------
+   PICKUP PLACEMENT — never inside or behind a hazard
+   ---------------------------------------------------------
+   Everything spawns at the same x and scrolls at the same speed, so the
+   horizontal offset between a pickup and an obstacle is fixed for their whole
+   lifetime: overlap is fully decidable at spawn time. We collect the danger
+   bands of every obstacle sharing the pickup's lane (plus a lead-in corridor to
+   the left, i.e. the stretch the player must fly through just before reaching
+   it), invert them, and drop the pickup in the roomiest gap.
+   --------------------------------------------------------- */
+const PICKUP_LEAD = 150;   // px of approach the player needs kept clear
+
+function freeSlotsFor(px, r){
+  const pad = r + 22;
+  const bands = [];
+  for(const ob of obstacles){
+    const w = (ob.type === "rotbar") ? ob.len : (ob.w || 40);
+    const left = (ob.type === "rotbar") ? ob.x - ob.len/2 : ob.x;
+    if(left + w < px - PICKUP_LEAD || left > px + r + 20) continue;
+    for(const b of obstacleForbidden(ob)) bands.push([b[0]-pad, b[1]+pad]);
+  }
+  bands.sort((a,b)=>a[0]-b[0]);
+  const slots = [];
+  let cursor = 70;
+  for(const b of bands){
+    if(b[0] > cursor) slots.push([cursor, Math.min(b[0], CH-70)]);
+    cursor = Math.max(cursor, b[1]);
+  }
+  if(cursor < CH-70) slots.push([cursor, CH-70]);
+  return slots.filter(s => s[1]-s[0] >= 2*r+8);
+}
+
+function spawnPowerupAt(kind){
+  const r = kind === "coin" ? 11 : 16;
+  const px = CW + 40;
+  const slots = freeSlotsFor(px, r);
+  if(!slots.length) return false;    // caller retries this pickup a beat later
+  // Prefer roomy slots so pickups sit in open sky rather than hugging a wall.
+  slots.sort((a,b)=>(b[1]-b[0])-(a[1]-a[0]));
+  const s = slots[Math.random() < 0.7 ? 0 : Math.floor(Math.random()*slots.length)];
+  const y = randRange(s[0]+r, s[1]-r);
+  powerups.push({ kind, x:px, y, r, bob:Math.random()*Math.PI*2, dead:false });
+  return true;
+}
+
+// Mirror of the above for the other ordering: an obstacle spawning on top of a
+// pickup that is already in flight. Nudge the obstacle, never the pickup.
+function avoidPickups(ob){
+  if(!ob || ob.type === "spike") return;
+  const w = (ob.type === "rotbar") ? ob.len : (ob.w||40);
+  const left = (ob.type === "rotbar") ? ob.x - ob.len/2 : ob.x;
+  for(const p of powerups){
+    if(p.x + p.r < left - 10 || p.x - p.r > left + w + PICKUP_LEAD) continue;
+    for(const band of obstacleForbidden(ob)){
+      if(p.y > band[0]-p.r-20 && p.y < band[1]+p.r+20){
+        if(ob.type === "laserGate" || ob.type === "monolith"){
+          ob.gapY = Math.max(GROUND_MARGIN+8, Math.min(CH-GROUND_MARGIN-8-ob.gapH, p.y - ob.gapH/2));
+        } else if(ob.type === "crusher"){
+          ob.gapCenter = Math.max(ob.gapMin, Math.min(CH-ob.gapMin, p.y));
+        } else {
+          const push = (p.y < CH/2) ? 1 : -1;   // shove it toward the far side
+          const nb = Math.max(GROUND_MARGIN,
+                     Math.min(CH-GROUND_MARGIN-(ob.h||40), (ob.baseY!=null?ob.baseY:ob.y) + push*(p.r + (ob.h||40)/2 + 46)));
+          ob.y = nb; if(ob.baseY != null) ob.baseY = nb;
+        }
+        return;
+      }
+    }
+  }
+}
+
+/* =========================================================
+   COLLISION
+   ========================================================= */
+function planeHitbox(){
+  return { x: PLANE_X-24, y: plane.y-11, w:50, h:22 };
+}
+function rectsOverlap(a,b){
+  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+function circleRectOverlap(cx,cy,r,rc){
+  const nx = Math.max(rc.x, Math.min(cx, rc.x+rc.w));
+  const ny = Math.max(rc.y, Math.min(cy, rc.y+rc.h));
+  const dx = cx-nx, dy = cy-ny;
+  return (dx*dx+dy*dy) < r*r;
+}
+
+/* =========================================================
+   INPUT
+   ========================================================= */
+const thrustBtn = document.getElementById("thrustBtn");
+
+function pointerDown(e){
+  if(e) e.preventDefault();
+  if(state !== "playing") return;
+  // #thrustPad sits inside #stage and both listen for pointerdown, so one tap
+  // arrives twice via bubbling. Treat the press as already handled.
+  if(holding) return;
+  holding = true;
+  pressStartT = performance.now();
+  thrustBtn.classList.add("active");
+}
+function pointerUp(e){
+  if(e) e.preventDefault();
+  if(state !== "playing"){ holding=false; thrustBtn.classList.remove("active"); return; }
+  // Same duplication on release (window + #stage). Without this guard the
+  // quick-tap branch below runs twice per tap: two level-outs, two click SFX.
+  if(!holding) return;
+  const dur = performance.now() - pressStartT;
+  holding = false;
+  thrustBtn.classList.remove("active");
+  if(dur < 190){
+    // quick tap -> level out toward middle
+    levelingTimer = 0.5;
+    Audio8.sfxClick();
+  }
+}
+
+document.getElementById("thrustPad").addEventListener("pointerdown", pointerDown);
+window.addEventListener("pointerup", pointerUp);
+window.addEventListener("pointercancel", pointerUp);
+document.getElementById("stage").addEventListener("pointerdown", (e)=>{
+  // allow tapping anywhere on the stage during play (not just the pad) for phones
+  if(state==="playing" && !e.target.closest("#hudBar")){
+    pointerDown(e);
+  }
+});
+document.getElementById("stage").addEventListener("pointerup", pointerUp);
+
+window.addEventListener("keydown",(e)=>{
+  if(e.code === "Space" && !e.repeat){ pointerDown(); }
+});
+window.addEventListener("keyup",(e)=>{
+  if(e.code === "Space"){ pointerUp(); }
+});
+
+/* =========================================================
+   MENU BUILD
+   ========================================================= */
+const planeRow = document.getElementById("planeRow");
+PLANE_STYLES.forEach((style, idx)=>{
+  const card = document.createElement("div");
+  card.className = "plane-card" + (idx===selectedPlaneIdx ? " selected":"");
+  const c = document.createElement("canvas");
+  c.width = 90; c.height = 60;
+  card.appendChild(c);
+  const label = document.createElement("div");
+  label.className = "pname";
+  label.textContent = style.name;
+  card.appendChild(label);
+  card.addEventListener("click", ()=>{
+    selectedPlaneIdx = idx;
+    document.querySelectorAll(".plane-card").forEach(el=>el.classList.remove("selected"));
+    card.classList.add("selected");
+    Audio8.sfxClick();
+  });
+  planeRow.appendChild(card);
+
+});
+
+// draw the mini plane icons using the same drawPlane routine but on the small canvases
+function renderPlaneIcons(){
+  const cards = planeRow.querySelectorAll(".plane-card canvas");
+  cards.forEach((c,idx)=>{
+    const g = c.getContext("2d");
+    g.imageSmoothingEnabled = false;
+    g.clearRect(0,0,c.width,c.height);
+    drawPlaneOnCtx(g, 45, 32, PLANE_STYLES[idx], 1.3, {});
+  });
+}
+
+// Wrapper so drawPlane can target arbitrary context (menu thumbnails vs main canvas)
+function drawPlaneOnCtx(targetCtx, gx, gy, style, s, opts){
+  const b = style.body, a = style.accent, d = style.dark;
+  targetCtx.save();
+  targetCtx.translate(gx, gy);
+  const B = (x,y,w,h,c)=>{ targetCtx.fillStyle=c; targetCtx.fillRect(Math.round(-22*s+x*s), Math.round(-10*s+y*s), Math.round(w*s), Math.round(h*s)); };
+  B(0,-2,6,10, d);
+  B(6,2,26,8, b);
+  B(2,4,6,4, b);
+  B(30,3,8,6, d);
+  B(36,4,6,4, a);
+  B(20,0,8,4, a);
+  if(style.variant === "classic"){ B(14,10,16,4, d); B(10,-4,10,4, b); }
+  else if(style.variant === "jet"){ B(10,10,22,4, d); B(16,-6,14,5, b); }
+  else if(style.variant === "dart"){ B(16,9,10,4, d); B(20,-4,12,3, b); }
+  else if(style.variant === "biplane"){ B(10,10,18,3, d); B(10,-6,18,3, d); }
+  else if(style.variant === "stealth"){ B(6,11,28,3, d); B(14,-7,20,4, b); }
+  targetCtx.restore();
+}
+renderPlaneIcons();
+
+const diffRow = document.getElementById("diffRow");
+DIFFICULTIES.forEach((d, idx)=>{
+  const card = document.createElement("div");
+  card.className = "diff-card " + d.cls + (idx===selectedDiff ? " selected":"");
+  card.innerHTML = `<div class="dname">${d.label}</div><div class="ddesc">${d.desc.replace(/\n/g,"<br>")}</div>` +
+                   `<div class="dbest" data-diff="${d.key}"></div>`;
+  card.addEventListener("click", ()=>{
+    selectedDiff = idx;
+    document.querySelectorAll(".diff-card").forEach(el=>el.classList.remove("selected"));
+    card.classList.add("selected");
+    Audio8.sfxClick();
+  });
+  diffRow.appendChild(card);
+});
+
+function refreshBestLabels(){
+  document.querySelectorAll(".dbest").forEach(el=>{
+    const b = getBest(el.dataset.diff);
+    el.textContent = b ? "BEST " + b : "";
+  });
+}
+refreshBestLabels();
+
+/* =========================================================
+   SCREEN / STATE TRANSITIONS
+   ========================================================= */
+const menuScreen = document.getElementById("menuScreen");
+const hudBar = document.getElementById("hudBar");
+const resetBtn = document.getElementById("resetBtn");
+const thrustPad = document.getElementById("thrustPad");
+const crashOverlay = document.getElementById("crashOverlay");
+const levelCompleteOverlay = document.getElementById("levelCompleteOverlay");
+const winOverlay = document.getElementById("winOverlay");
+const countdownOverlay = document.getElementById("startCountdownOverlay");
+const winSkipBtn = document.getElementById("winSkipBtn");
+const winAnimTextEl = document.getElementById("winAnimText");
+
+function hideAllOverlays(){
+  [crashOverlay, levelCompleteOverlay, winOverlay, countdownOverlay].forEach(o=>o.classList.remove("show"));
+}
+
+function showMenu(){
+  state = "menu";
+  Audio8.stopMusic();
+  hideAllOverlays();
+  menuScreen.style.display = "flex";
+  hudBar.style.display = "none";
+  thrustPad.style.display = "none";
+  winSkipBtn.style.display = "none";
+  winAnimTextEl.style.display = "none";
+}
+
+function beginLevel(levelIdx){
+  currentLevel = levelIdx;
+  resetRunState();
+  runScoreStart = score;
+  menuScreen.style.display = "none";
+  hudBar.style.display = "flex";
+  thrustPad.style.display = "flex";
+  hideAllOverlays();
+  updateHUDLevelLabel();
+  const needsFuel = fuelMatters();
+  document.getElementById("fuelBox").style.display = needsFuel ? "flex" : "none";
+  document.getElementById("fuelInfBox").style.display = needsFuel ? "none" : "flex";
+  startCountdown();
+}
+
+function startCountdown(){
+  state = "countdown";
+  countdownOverlay.classList.add("show");
+  let n = 3;
+  countdownOverlay.querySelector("h2").textContent = n;
+  const iv = setInterval(()=>{
+    n--;
+    if(n<=0){
+      clearInterval(iv);
+      countdownOverlay.classList.remove("show");
+      state = "playing";
+      lastTime = performance.now();
+      Audio8.ensureCtx();
+      Audio8.playMusic(currentLevel);
+      if(!rafId) rafId = requestAnimationFrame(loop);
+    } else {
+      countdownOverlay.querySelector("h2").textContent = n;
+    }
+  }, 650);
+}
+
+function updateHUDLevelLabel(){
+  document.getElementById("levelBox").textContent =
+    "LVL " + (currentLevel+1) + "/5 · " + DIFFICULTIES[selectedDiff].label;
+}
+
+function crashPlane(reason){
+  if(state !== "playing") return;
+  state = "crashed";
+  Audio8.stopMusic();
+  Audio8.sfxCrash();
+  crashReasonText = reason;
+  // Best is per-difficulty and records however far you got, not only full runs.
+  const dk = DIFFICULTIES[selectedDiff].key;
+  if(score > getBest(dk)){ setBest(dk, score); refreshBestLabels(); }
+  document.getElementById("crashReason").textContent = reason;
+  document.getElementById("crashScore").textContent = Math.floor(score);
+  document.getElementById("crashTitle").textContent = "CRASHED!";
+  crashOverlay.classList.add("show");
+  addShake(0.45, 11);
+  spawnExplosion(PLANE_X, plane.y);
+}
+
+// ---- Level-clear celebration: the plane flies into a hero-sized burger ----
+//
+// Total runtime is pinned to exactly 3.0s (BURGER_TOTAL). The burger is sized
+// so its artwork covers ~1/5 of the 960x540 canvas: the drawn art spans 66*s
+// wide by 69*s tall (see drawBurger), so 66*69*s^2 / (CW*CH) = 0.20 solves to
+// s ~= 4.77. BURGER_AREA_TARGET and burgerAreaFraction() below keep that
+// honest — the preview harness reads the real number rather than eyeballing it.
+let burgerAnim = null;
+const BURGER_APPROACH = 1.9, BURGER_EAT = 0.5, BURGER_PAUSE = 0.6;
+const BURGER_TOTAL = BURGER_APPROACH + BURGER_EAT + BURGER_PAUSE; // 3.0s
+const BURGER_ART_W = 66, BURGER_ART_H = 69; // in scale-1 units, from drawBurger
+const BURGER_AREA_TARGET = 0.20;
+const BURGER_SCALE = Math.sqrt(BURGER_AREA_TARGET * CW * CH / (BURGER_ART_W * BURGER_ART_H));
+const BURGER_X = 640, BURGER_Y = 250;   // keeps the art + glow fully on-canvas
+const BURGER_POP = 0.45;                 // scale-in time at the head of approach
+const PLANE_CONTACT_X = BURGER_X - 120;  // plane nose ends up inside the bun
+
+function burgerAreaFraction(scale){
+  const s = (scale == null) ? BURGER_SCALE : scale;
+  return (BURGER_ART_W * s) * (BURGER_ART_H * s) / (CW * CH);
+}
+
+const easeOutCubic = u => 1 - Math.pow(1-u, 3);
+const easeInOutCubic = u => u < 0.5 ? 4*u*u*u : 1 - Math.pow(-2*u+2, 3)/2;
+
+// Current on-screen scale of the burger for a given point in the animation.
+function burgerScaleAt(t){
+  return BURGER_SCALE * (0.35 + 0.65*easeOutCubic(Math.min(1, t/BURGER_POP)));
+}
+
+function startLevelClearAnim(){
+  if(state !== "playing" && state !== "levelclearanim") return;
+  state = "levelclearanim";
+  holding = false;
+  // v3 hard-wiped both arrays here, which popped live obstacles and pickups out
+  // of existence mid-screen. With the distance-based cutoffs above the screen is
+  // normally already empty; anything a late slow-mo left behind now drifts off
+  // and fades instead of vanishing.
+  bolts = [];
+  obstacles.forEach(o=>{ o.fading = true; o.destructible = false; });
+  powerups.forEach(p=>{ p.fading = true; });
+  burgerAnim = { t:0, eaten:false, x: BURGER_X, y: BURGER_Y, planeFromY: plane.y, planeFromX: plane.x };
+  Audio8.stopMusic();
+  Audio8.sfxBurgerAppear();
+}
+
+function updateLevelClearAnim(dt){
+  burgerAnim.t += dt;
+  const t = burgerAnim.t;
+
+  // Carry any stragglers off-screen under a fade rather than deleting them.
+  const drift = 300*dt;
+  for(const o of obstacles){ o.x -= drift; o.fade = Math.max(0, 1 - t/0.5); }
+  for(const p of powerups){ p.x -= drift; p.fade = Math.max(0, 1 - t/0.5); }
+  obstacles = obstacles.filter(o=>o.fade > 0.02);
+  powerups  = powerups.filter(p=>p.fade > 0.02);
+  if(wingman) wingman = null;
+
+  if(t < BURGER_APPROACH){
+    // Fly the plane in along both axes so it visibly travels *into* the burger,
+    // rather than the burger simply arriving at a stationary plane.
+    const u = easeInOutCubic(t / BURGER_APPROACH);
+    plane.x = burgerAnim.planeFromX + (PLANE_CONTACT_X - burgerAnim.planeFromX) * u;
+    plane.y = burgerAnim.planeFromY + (burgerAnim.y - burgerAnim.planeFromY) * u;
+    plane.vy = 0;
+    scrollX += 240*dt;
+    if(Math.random() < 0.6){
+      particles.push({
+        x: plane.x-34+randRange(-4,4), y: plane.y+randRange(-7,7),
+        vx: randRange(-160,-80), vy: randRange(-25,25),
+        life: randRange(0.2,0.38), age:0, size: randRange(4,8),
+        color: Math.random()<0.5 ? "#ffd23f" : "#ff9d3f", noGravity:true
+      });
+    }
+  } else if(t < BURGER_APPROACH+BURGER_EAT){
+    plane.x = PLANE_CONTACT_X;
+    if(!burgerAnim.eaten){
+      burgerAnim.eaten = true;
+      Audio8.sfxChomp();
+      score += 50;
+      spawnFloatText(burgerAnim.x, burgerAnim.y - BURGER_ART_H*BURGER_SCALE*0.5 - 24,
+                     "+50 SNACK BONUS!", "#ffd23f");
+      spawnConfetti(burgerAnim.x, burgerAnim.y, 34,
+                    ["#ffd23f","#e0a24a","#5ac95a","#e2453f","#f2b25c"]);
+      updateHUD();
+    }
+  } else if(t >= BURGER_TOTAL){
+    if(typeof onLevelClearAnimEnd === "function" && onLevelClearAnimEnd()) return;
+    completeLevel();
+    return;
+  }
+  ageParticlesAndText(dt);
+}
+
+// Preview harness overrides this to loop instead of advancing the run.
+let onLevelClearAnimEnd = null;
+
+function completeLevel(){
+  if(state !== "playing" && state !== "levelclearanim") return;
+  state = "levelcomplete";
+  Audio8.stopMusic();
+  Audio8.sfxLevelComplete();
+  const fuelBonus = fuelMatters() ? Math.floor(fuel) : 0;
+  const bonus = fuelBonus + shieldCharges*30;
+  score += bonus;
+  document.getElementById("lcLevelName").textContent = LEVELS[currentLevel].name;
+  document.getElementById("lcScore").textContent = Math.floor(score);
+  document.getElementById("lcBonus").textContent =
+    (fuelMatters() ? "FUEL BONUS +" + fuelBonus + "  " : "") + "SHIELD BONUS +" + (shieldCharges*30);
+  const st = levelStats;
+  document.getElementById("lcStats").textContent =
+    st.cleared + " DODGED · " + st.pickups + " GRABBED · " + st.hits + " HIT" +
+    (st.wingSaves ? " · " + st.wingSaves + " WING SAVE" : "");
+  levelCompleteOverlay.classList.add("show");
+  document.getElementById("nextLevelBtn").textContent = (currentLevel < 4) ? "▶ NEXT LEVEL" : "★ FINISH RUN";
+}
+
+// ---- Grand finale: ~15s themed victory animation before the final results screen ----
+let winAnim = null;
+const WIN_ANIM_DURATION = 15;
+const WIN_MESSAGES = [
+  { at:0,  text:"LEVEL 5 CLEAR!" },
+  { at:5,  text:"ALL 5 LEVELS COMPLETE!" },
+  { at:10, text:"YOU'RE A DASH LEGEND!" }
+];
+
+function winGame(){
+  state = "winanim";
+  hideAllOverlays();
+  obstacles = []; powerups = [];
+  winAnim = { t:0, nextRain:0, nextBurst:0, burgers:[], msgIdx:0 };
+  Audio8.stopMusic();
+  Audio8.sfxWin();
+  winAnimTextEl.style.display = "block";
+  document.getElementById("winAnimTextSpan").textContent = WIN_MESSAGES[0].text;
+  winSkipBtn.style.display = "none";
+  setTimeout(()=>{ if(state==="winanim") winSkipBtn.style.display = "block"; }, 1800);
+}
+
+function updateWinAnim(dt){
+  winAnim.t += dt;
+  scrollX += 200*dt;
+
+  // cycle celebratory messages
+  for(let i=WIN_MESSAGES.length-1; i>=0; i--){
+    if(winAnim.t >= WIN_MESSAGES[i].at && winAnim.msgIdx !== i){
+      winAnim.msgIdx = i;
+      document.getElementById("winAnimTextSpan").textContent = WIN_MESSAGES[i].text;
+      break;
+    }
+  }
+
+  // plane does a big joyful loop around the screen
+  const loopX = CW*0.5 + Math.cos(winAnim.t*1.1)*230;
+  const loopY = CH*0.5 + Math.sin(winAnim.t*2.0)*150;
+  plane.x = loopX; plane.y = loopY;
+
+  // confetti rain from the top
+  winAnim.nextRain -= dt;
+  if(winAnim.nextRain <= 0){
+    winAnim.nextRain = 0.09;
+    spawnConfetti(randRange(20,CW-20), -10, 2, ["#ffd23f","#ff5d73","#3fe0ff","#4ce07a","#c85bff","#ffb04d"]);
+  }
+
+  // periodic big radial bursts at the plane's position
+  winAnim.nextBurst -= dt;
+  if(winAnim.nextBurst <= 0){
+    winAnim.nextBurst = 1.4;
+    spawnConfetti(loopX, loopY, 22, ["#ffd23f","#ff5d73","#3fe0ff","#4ce07a","#c85bff"]);
+    Audio8.sfxPickup("star");
+  }
+
+  // the occasional mini burger flies across for fun
+  if(Math.random() < 0.01 && winAnim.burgers.length < 2){
+    const fromLeft = Math.random()<0.5;
+    winAnim.burgers.push({
+      x: fromLeft ? -40 : CW+40, y: randRange(80, CH-80),
+      vx: fromLeft ? randRange(160,240) : -randRange(160,240)
+    });
+  }
+  for(const b of winAnim.burgers){ b.x += b.vx*dt; }
+  winAnim.burgers = winAnim.burgers.filter(b => b.x > -60 && b.x < CW+60);
+
+  ageParticlesAndText(dt);
+
+  if(winAnim.t >= WIN_ANIM_DURATION){
+    finalizeWin();
+  }
+}
+
+function finalizeWin(){
+  state = "win";
+  winAnimTextEl.style.display = "none";
+  winSkipBtn.style.display = "none";
+  plane.x = PLANE_X;
+  document.getElementById("winScore").textContent = Math.floor(score);
+  document.getElementById("winDiff").textContent = DIFFICULTIES[selectedDiff].label;
+  const dk = DIFFICULTIES[selectedDiff].key;
+  const prev = getBest(dk);
+  if(score > prev){
+    setBest(dk, score);
+    document.getElementById("winBest").innerHTML = "<b>★ NEW BEST! ★</b>";
+  } else {
+    document.getElementById("winBest").textContent = "BEST: " + prev;
+  }
+  refreshBestLabels();
+  winOverlay.classList.add("show");
+}
+
+/* =========================================================
+   PARTICLES / FLOAT TEXT
+   ========================================================= */
+function spawnExplosion(x,y){
+  for(let i=0;i<18;i++){
+    particles.push({
+      x, y, vx: randRange(-220,220), vy: randRange(-220,220),
+      life: randRange(0.3,0.7), age:0,
+      size: randRange(4,9),
+      color: Math.random()<0.5 ? "#ff5d73" : "#ffd23f"
+    });
+  }
+}
+function spawnSparkle(x,y,color){
+  for(let i=0;i<8;i++){
+    particles.push({
+      x, y, vx: randRange(-90,90), vy: randRange(-90,90),
+      life: randRange(0.25,0.5), age:0, size: randRange(3,6), color
+    });
+  }
+}
+function spawnConfetti(x,y,count,colors){
+  count = count || 16;
+  colors = colors || ["#ffd23f","#ff5d73","#3fe0ff","#4ce07a","#c85bff"];
+  for(let i=0;i<count;i++){
+    particles.push({
+      x, y, vx: randRange(-190,190), vy: randRange(-260,-40),
+      life: randRange(0.8,1.7), age:0,
+      size: randRange(4,9),
+      color: colors[Math.floor(Math.random()*colors.length)]
+    });
+  }
+}
+function spawnFloatText(x,y,text,color){
+  floatTexts.push({ x,y, text, color, age:0, life:0.9 });
+}
+function ageParticlesAndText(dt){
+  for(const pt of particles){
+    pt.age += dt; pt.x += pt.vx*dt; pt.y += pt.vy*dt;
+    if(!pt.noGravity) pt.vy += 420*dt;
+  }
+  particles = particles.filter(pt=>pt.age < pt.life);
+  for(const ft of floatTexts){ ft.age += dt; ft.y -= 26*dt; }
+  floatTexts = floatTexts.filter(ft=>ft.age < ft.life);
+}
+
+/* =========================================================
+   UPDATE
+   ========================================================= */
+const GRAVITY = 780;
+const THRUST_ACCEL = -1120;
+const MAX_FALL = 480;
+const MAX_RISE = -420;
+
+function update(dt){
+  if(state === "levelclearanim"){ updateLevelClearAnim(dt); return; }
+  if(state === "winanim"){ updateWinAnim(dt); return; }
+  if(state !== "playing") return;
+
+  const diff = DIFFICULTIES[selectedDiff];
+  const lvl = LEVELS[currentLevel];
+  const elapsed = LEVEL_DURATION - timeLeft;
+  const worldSpeed = 260 * diff.speed * lvl.speedMul * slowFactor;
+
+  timeLeft -= dt;
+  if(timeLeft <= 0){ timeLeft = 0; startLevelClearAnim(); return; }
+
+  // fuel only drains on Hard / Easy Demon — below that, flying is fuel-free
+  if(fuelMatters()){
+    fuel -= (100/20) * dt; // empty in 20s of flight without refuel
+    // Warn before the silence kills you: bar goes red and beeps under 25%.
+    if(fuel < 25){
+      fuelWarnTimer -= dt;
+      if(fuelWarnTimer <= 0){
+        fuelWarnTimer = fuel < 12 ? 0.5 : 1.0;   // urgency rises as it empties
+        Audio8.sfxFuelWarn();
+      }
+    } else {
+      fuelWarnTimer = 0;
+    }
+    if(fuel <= 0){
+      fuel = 0;
+      Audio8.sfxFuelOut();
+      crashPlane("Ran out of fuel! Grab fuel canisters to keep flying.");
+      return;
+    }
+  } else {
+    fuel = 100;
+  }
+
+  if(shakeT > 0) shakeT -= dt;
+  if(structuralCooldown > 0) structuralCooldown -= dt;
+
+  // timers
+  if(slowTimer > 0){ slowTimer -= dt; if(slowTimer<=0){ slowFactor = 1; } }
+  if(scoreMultiplierTimer > 0){ scoreMultiplierTimer -= dt; if(scoreMultiplierTimer<=0){ scoreMultiplier = 1; } }
+  if(magnetTimer > 0){ magnetTimer -= dt; }
+  if(phaseTimer > 0){ phaseTimer -= dt; }
+  if(invuln > 0) invuln -= dt;
+
+  // plane physics
+  if(levelingTimer > 0){
+    levelingTimer -= dt;
+    const target = CH/2;
+    plane.y += (target - plane.y) * Math.min(1, dt*6);
+    plane.vy *= 0.85;
+  } else if(holding){
+    plane.vy += THRUST_ACCEL*dt;
+    if(plane.vy < MAX_RISE) plane.vy = MAX_RISE;
+    if(Math.random()<0.35) Audio8.sfxThrust();
+    // exhaust plume trailing behind the plane while climbing
+    for(let i=0;i<2;i++){
+      particles.push({
+        x: PLANE_X - 34 + randRange(-4,4), y: plane.y + randRange(-7,7),
+        vx: randRange(-160,-80), vy: randRange(-25,35),
+        life: randRange(0.22,0.42), age:0,
+        size: randRange(4,9),
+        color: Math.random()<0.5 ? "#ffd23f" : "#ff9d3f",
+        noGravity:true
+      });
+    }
+  } else {
+    plane.vy += GRAVITY*dt;
+    if(plane.vy > MAX_FALL) plane.vy = MAX_FALL;
+  }
+  plane.y += plane.vy*dt;
+
+  let outOfBounds = false;
+  if(plane.y < GROUND_MARGIN){ plane.y = GROUND_MARGIN; plane.vy = 0; }
+  if(plane.y > CH-GROUND_MARGIN){ plane.y = CH-GROUND_MARGIN; plane.vy = 0; outOfBounds = false; }
+
+  // score (distance)
+  score += dt * 12 * scoreMultiplier;
+
+  scrollX += worldSpeed*dt;
+
+  // spawn scheduled events — distance-based cutoffs keep the last seconds clear
+  const obCut = obstacleCutoff(worldSpeed);
+  const puCut = powerupCutoff(worldSpeed);
+  while(spawnSchedule.length && spawnSchedule[0].t <= elapsed){
+    const ev = spawnSchedule.shift();
+    if(ev.type === "obstacle"){
+      if(structuralCooldown > 0){
+        ev.t = elapsed + structuralCooldown;
+        spawnSchedule.unshift(ev);
+        break;
+      }
+      if(timeLeft > obCut) avoidPickups(spawnObstacleAt(elapsed, ev.n));
+    } else {
+      if(timeLeft > puCut){
+        // No clear lane right now? Try again shortly rather than dropping it
+        // into a wall — but give up if the quiet window arrives first.
+        if(!spawnPowerupAt(ev.kind) && (ev.retries||0) < 6){
+          ev.retries = (ev.retries||0) + 1;
+          ev.t = elapsed + 0.35;
+          spawnSchedule.unshift(ev);
+          break;
+        }
+      }
+    }
+  }
+  // Once obstacles stop, the run-in to the burger begins: a themed beacon slides
+  // in and a coin arc curves through the now-empty sky.
+  if(!approach.closed && timeLeft <= obCut){
+    approach.closed = true;
+    approach.beaconX = CW + 200;
+  }
+  if(approach.closed){
+    if(approach.beaconX > -320) approach.beaconX -= worldSpeed*dt;
+    // The reward arc only appears if every coin in it can still be reached
+    // before the level ends — the trailing coins are the whole point of it.
+    const ARC_N = 6, ARC_GAP = 40;
+    const arcReach = (CW + 40 + (ARC_N-1)*ARC_GAP - PLANE_X) / Math.max(40, worldSpeed) + 0.4;
+    if(!approach.coinsDropped && timeLeft <= obCut - 0.2){
+      if(timeLeft > arcReach){
+        approach.coinsDropped = true;
+        const cy = Math.max(120, Math.min(CH-120, plane.y));
+        for(let i=0;i<ARC_N;i++){
+          powerups.push({ kind:"coin", x: CW+40+i*ARC_GAP, y: cy - Math.sin(i/(ARC_N-1)*Math.PI)*90,
+                          r:11, bob:i*0.6, dead:false });
+        }
+      } else if(timeLeft <= puCut){
+        approach.coinsDropped = true;   // window has closed — skip it entirely
+      }
+    }
+  }
+
+  // update obstacles
+  const hb = planeHitbox();
+  for(const ob of obstacles){
+    ob.x -= worldSpeed*dt;
+    ob.age += dt;
+
+    if((ob.type === "block" || ob.type === "spikeBlock") && ob.moving){
+      ob.y = ob.baseY + Math.sin(elapsed*ob.freq*2 + ob.phase) * ob.amp;
+      ob.y = Math.max(GROUND_MARGIN, Math.min(CH-GROUND_MARGIN-ob.h, ob.y));
+    } else if(ob.type === "laserGate"){
+      const ph = (ob.age + ob.phase) % ob.period;
+      ob.beamOn = ph < ob.period*ob.onFrac;
+      ob.charging = !ob.beamOn && ph > ob.period*ob.onFrac + (ob.period*(1-ob.onFrac) - 0.3);
+      if(ob.beamOn && !ob.wasOn && ob.x < CW+40) Audio8.sfxLaserOn();
+      ob.wasOn = ob.beamOn;
+    } else if(ob.type === "crusher"){
+      const u = (Math.sin(ob.age*(Math.PI*2/ob.period) + ob.phase) + 1)/2;  // 0..1
+      ob.gapH = ob.gapMin + (ob.gapMax-ob.gapMin)*u;
+      const nowSlammed = u < 0.12;
+      if(nowSlammed && !ob.slammed && ob.x < CW+40){ Audio8.sfxCrusher(); addShake(0.12, 3); }
+      ob.slammed = nowSlammed;
+    } else if(ob.type === "rotbar"){
+      ob.ang += ob.spin*dt;
+    }
+
+    const obW = (ob.type === "rotbar") ? ob.len : (ob.w||40);
+    const obLeft = (ob.type === "rotbar") ? ob.x - ob.len/2 : ob.x;
+    if(obLeft + obW < -20) ob.dead = true;
+    // count it as cleared the moment it passes the plane
+    if(!ob.counted && obLeft + obW < PLANE_X - 24){ ob.counted = true; levelStats.cleared++; }
+
+    if(!ob.dead && invuln<=0 && phaseTimer<=0){
+      let hit = false;
+      for(const r of obstacleRects(ob)){ if(rectsOverlap(hb, r)){ hit = true; break; } }
+      if(hit){
+        levelStats.hits++;
+        if(wingman && wingman.alive){
+          // The escort takes the hit and goes down in flames.
+          wingman.alive = false; wingman.deathT = 0;
+          invuln = 1.0;
+          levelStats.wingSaves++;
+          if(ob.destructible) ob.dead = true;
+          Audio8.sfxWingDown();
+          addShake(0.25, 6);
+          spawnExplosion(wingman.x, wingman.y);
+          spawnFloatText(PLANE_X, plane.y-34, "WINGMAN DOWN!", "#ff9d3f");
+        } else if(shieldCharges > 0){
+          shieldCharges--;
+          invuln = 0.9;
+          if(ob.destructible) ob.dead = true;
+          Audio8.sfxShieldHit();
+          addShake(0.18, 5);
+          spawnSparkle(PLANE_X, plane.y, "#3fe0ff");
+          spawnFloatText(PLANE_X, plane.y-30, "SHIELD -1", "#3fe0ff");
+          updateShieldPips();
+        } else {
+          crashPlane(CRASH_REASONS[ob.type] || "Slammed into a block!");
+          return;
+        }
+      }
+    }
+  }
+  obstacles = obstacles.filter(o=>!o.dead);
+
+  updateWingman(dt, worldSpeed);
+
+  // update powerups
+  // Shield and phase both project a bubble around the plane — that bubble is
+  // the pickup hitbox while it lasts, so holding one makes collecting easier
+  // (and makes the aura read as useful rather than decorative).
+  const grabR = phaseTimer > 0 ? 62 : (shieldCharges > 0 ? 55 : 0);
+  for(const p of powerups){
+    if(magnetTimer > 0){
+      const dx = PLANE_X - p.x, dy = plane.y - p.y;
+      const dist = Math.hypot(dx,dy);
+      if(dist < 280 && dist > 1){
+        p.x += (dx/dist) * 340 * dt;
+        p.y += (dy/dist) * 340 * dt;
+      }
+    }
+    p.x -= worldSpeed*dt;
+    p.bob += dt*3;
+    if(p.x < -30) p.dead = true;
+    if(p.dead) continue;
+    const py = p.y + Math.sin(p.bob)*6;
+    let got = circleRectOverlap(p.x, py, p.r, hb);
+    if(!got && grabR > 0){
+      got = Math.hypot(p.x-PLANE_X, py-plane.y) < grabR + p.r;
+      if(got) spawnSparkle(p.x, py, phaseTimer>0 ? "#d7f5ff" : "#3fe0ff");
+    }
+    if(got){ collectPowerup(p); p.dead = true; }
+  }
+  powerups = powerups.filter(p=>!p.dead);
+
+  ageParticlesAndText(dt);
+
+  updateHUD();
+}
+
+const CRASH_REASONS = {
+  spike:      "Impaled on a spike!",
+  spikeBlock: "Shredded by a spike block!",
+  block:      "Slammed into a block!",
+  laserGate:  "Cut down by a laser gate!",
+  crusher:    "Flattened by a crusher!",
+  rotbar:     "Swatted by a rotor bar!",
+  monolith:   "Splattered against a monolith!"
+};
+
+function addShake(dur, mag){
+  shakeT = Math.max(shakeT, dur);
+  shakeMag = Math.max(shakeMag, mag);
+}
+
+/* ---------------------------------------------------------
+   WINGMAN — the level 5 escort
+   ---------------------------------------------------------
+   Flies off your wing, soaks exactly one hit, and pops off bolts that clear
+   the destructible hazards ahead. Laser gates, crushers and monoliths are
+   structures: bolts pass through them, so it never trivialises the level.
+   --------------------------------------------------------- */
+const WINGMAN_LIFE = 14, WINGMAN_COOLDOWN = 1.5;
+
+function updateWingman(dt, worldSpeed){
+  if(wingman){
+    if(wingman.alive){
+      wingman.life -= dt;
+      // trail the player with lag so it reads as a second pilot, not a sprite bolted on
+      const tx = PLANE_X - 62, ty = plane.y - 46 + Math.sin(wingman.t*2.2)*8;
+      wingman.t += dt;
+      wingman.x += (tx - wingman.x) * Math.min(1, dt*3.4);
+      wingman.y += (ty - wingman.y) * Math.min(1, dt*2.6);
+      wingman.cd -= dt;
+      if(wingman.cd <= 0){
+        wingman.cd = WINGMAN_COOLDOWN;
+        bolts.push({ x:wingman.x+22, y:wingman.y, dead:false });
+        Audio8.sfxWingBolt();
+      }
+      if(wingman.life <= 0){
+        wingman.alive = false; wingman.deathT = 0;
+        spawnSparkle(wingman.x, wingman.y, "#ff9d3f");
+        spawnFloatText(wingman.x, wingman.y-20, "WINGMAN RTB", "#ff9d3f");
+      }
+    } else {
+      wingman.deathT += dt;
+      wingman.x -= (worldSpeed*0.6)*dt;
+      wingman.y += 220*dt;
+      if(wingman.deathT > 1.4 || wingman.y > CH+40) wingman = null;
+    }
+  }
+
+  for(const b of bolts){
+    b.x += 720*dt;
+    if(b.x > CW+20) b.dead = true;
+    if(b.dead) continue;
+    const br = { x:b.x-10, y:b.y-3, w:20, h:6 };
+    for(const ob of obstacles){
+      if(!ob.destructible || ob.dead) continue;
+      let hit = false;
+      for(const r of obstacleRects(ob)){ if(rectsOverlap(br, r)){ hit = true; break; } }
+      if(hit){
+        ob.dead = true; b.dead = true;
+        score += 15;
+        spawnExplosion(b.x, b.y);
+        spawnFloatText(b.x, b.y-18, "+15", "#ff9d3f");
+        break;
+      }
+    }
+  }
+  bolts = bolts.filter(b=>!b.dead);
+}
+
+function collectPowerup(p){
+  if(p.kind === "fuel"){
+    fuel = 100;
+    Audio8.sfxPickup("fuel");
+    spawnFloatText(p.x, p.y, "+FUEL", "#4ce07a");
+    const fill = document.getElementById("fuelFill");
+    fill.classList.remove("pulse"); void fill.offsetWidth; fill.classList.add("pulse");
+  } else if(p.kind === "shield"){
+    shieldCharges = Math.min(SHIELD_MAX, shieldCharges + 1);
+    Audio8.sfxPickup("shield");
+    spawnFloatText(p.x, p.y, "+SHIELD", "#3fe0ff");
+    updateShieldPips();
+  } else if(p.kind === "slow"){
+    slowFactor = 0.55; slowTimer = 5;
+    Audio8.sfxPickup("slow");
+    spawnFloatText(p.x, p.y, "SLOW-MO", "#c85bff");
+  } else if(p.kind === "coin"){
+    score += 20;
+    Audio8.sfxPickup("coin");
+    spawnFloatText(p.x, p.y, "+20", "#ffe14d");
+  } else if(p.kind === "magnet"){
+    magnetTimer = 7;
+    Audio8.sfxPickup("magnet");
+    spawnFloatText(p.x, p.y, "MAGNET!", "#ff9d3f");
+  } else if(p.kind === "ghost"){
+    phaseTimer = 4.5;
+    Audio8.sfxPickup("ghost");
+    spawnFloatText(p.x, p.y, "PHASE!", "#d7f5ff");
+  } else if(p.kind === "star"){
+    score += 60;
+    scoreMultiplier = 2; scoreMultiplierTimer = 6;
+    Audio8.sfxPickup("star");
+    spawnFloatText(p.x, p.y, "+60 x2!", "#ffd23f");
+  } else if(p.kind === "wingman"){
+    wingman = { x: PLANE_X-62, y: plane.y-46, t:0, life:WINGMAN_LIFE,
+                cd:0.5, alive:true, deathT:0 };
+    Audio8.sfxPickup("wingman");
+    spawnFloatText(p.x, p.y, "WINGMAN!", "#ff9d3f");
+  }
+  levelStats.pickups++;
+  spawnSparkle(p.x, p.y, "#ffd23f");
+}
+
+function updateShieldPips(){
+  const pips = document.querySelectorAll("#shieldPips .pip");
+  pips.forEach((el,i)=> el.classList.toggle("off", i>=shieldCharges));
+}
+function updateHUD(){
+  document.getElementById("scoreBox").textContent = "SCORE " + Math.floor(score);
+  const fill = document.getElementById("fuelFill");
+  fill.style.width = Math.max(0,fuel) + "%";
+  const low = fuelMatters() && fuel < 25;
+  fill.classList.toggle("warn", low);
+  document.getElementById("fuelBox").classList.toggle("warn", low);
+  document.getElementById("timerBox").textContent = Math.ceil(timeLeft);
+
+  const buffs = [];
+  if(wingman && wingman.alive) buffs.push("WINGMAN " + Math.max(0,wingman.life).toFixed(1) + "s");
+  if(magnetTimer > 0) buffs.push("MAGNET " + magnetTimer.toFixed(1) + "s");
+  if(phaseTimer > 0) buffs.push("PHASE " + phaseTimer.toFixed(1) + "s");
+  if(slowTimer > 0) buffs.push("SLOW-MO " + slowTimer.toFixed(1) + "s");
+  if(scoreMultiplierTimer > 0) buffs.push("SCORE x2 " + scoreMultiplierTimer.toFixed(1) + "s");
+  const buffBox = document.getElementById("buffBox");
+  if(buffs.length){
+    buffBox.style.display = "block";
+    buffBox.innerHTML = buffs.join("<br>");
+  } else {
+    buffBox.style.display = "none";
+  }
+}
+
+/* =========================================================
+   DRAW
+   ========================================================= */
+/* ---------------------------------------------------------
+   LANDSCAPES — one animated theme per level
+   ---------------------------------------------------------
+   All of it is decorative and allocation-free: scenery positions come from
+   hash(i) (a deterministic pseudo-random) plus scrollX/worldT, so nothing is
+   stored per frame and the hot loop stays clean.
+   --------------------------------------------------------- */
+function hash(i){ const s = Math.sin(i*127.1 + 311.7)*43758.5453; return s - Math.floor(s); }
+
+function drawStars(density, alpha){
+  const offS = (scrollX*0.12) % 140;
+  for(let i=-1;i<CW/140+2;i++){
+    for(let j=0;j<density;j++){
+      const sx = i*140 + hash(i*7+j)*140 - offS;
+      const sy = 12 + hash(i*13+j*3)*320;
+      const tw = 0.55 + 0.45*Math.sin(worldT*2.2 + i*2 + j);
+      rectA(sx, sy, 3, 3, "#ffffff", alpha*tw);
+    }
+  }
+}
+
+// L2 — AIRFIELD APPROACH: control towers with live radar dishes, hangars,
+// windsocks, a drifting blimp, a formation crossing overhead, runway strobes.
+function drawAirfield(lvl){
+  // No sun disc here: a big soft circle in the upper play area read as a grey
+  // moon parked in the flight path. The warmth comes from a horizon wash
+  // instead, which stays out of the way.
+  const wash = ctx2d.createLinearGradient(0, CH*0.35, 0, CH);
+  wash.addColorStop(0, "rgba(255,236,180,0)");
+  wash.addColorStop(1, "rgba(255,224,150,0.22)");
+  ctx2d.fillStyle = wash; ctx2d.fillRect(0, CH*0.35, CW, CH*0.65);
+
+  // slow cloud bank, kept high and soft
+  const offC = (scrollX*0.08) % 420;
+  for(let i=-1;i<CW/420+2;i++){
+    const bx = i*420 - offC, by = 34 + hash(i)*44;
+    ctx2d.globalAlpha = 0.24;
+    rect(bx+14, by+10, 118, 12, "#ffffff");
+    rect(bx+30, by+2,  84, 10, "#ffffff");
+    rect(bx+48, by-5,  44, 8,  "#ffffff");
+    rect(bx+168, by+30, 74, 10, "#ffffff");
+    rect(bx+184, by+22, 44, 9, "#ffffff");
+    ctx2d.globalAlpha = 1;
+  }
+
+  // blimp on its own slow drift, independent of the ground scroll
+  const bx = CW + 120 - ((worldT*26 + scrollX*0.05) % (CW+420));
+  rect(bx, 74, 96, 34, "#d8e4f2"); rect(bx-10, 82, 12, 18, "#d8e4f2");
+  rect(bx+96, 84, 12, 14, "#b9c8dc");
+  rect(bx+22, 84, 54, 12, "#ffd23f");
+  rect(bx+40, 108, 20, 10, "#4a5580");
+
+  // three-plane formation crossing the sky, with contrails
+  const fx = CW + 200 - ((worldT*118) % (CW+520));
+  for(let i=0;i<3;i++){
+    const px = fx + i*34, py = 150 + Math.abs(i-1)*18 + Math.sin(worldT*1.6)*4;
+    ctx2d.globalAlpha = 0.30;
+    rect(px+12, py+2, 120, 3, "#ffffff");
+    ctx2d.globalAlpha = 0.85;
+    rect(px, py, 14, 4, "#e8f0ff"); rect(px+4, py-4, 4, 12, "#e8f0ff");
+    ctx2d.globalAlpha = 1;
+  }
+
+  // far hangar row + control tower with a turning radar dish
+  const off1 = (scrollX*0.22) % 300;
+  for(let i=-1;i<CW/300+2;i++){
+    const hx = i*300 - off1, base = CH-116;
+    ctx2d.globalAlpha = 0.55;
+    // hangar: curved roof approximated in steps, bay door open
+    rect(hx, base-34, 116, 34, "#5a6a8c");
+    rect(hx+10, base-44, 96, 10, "#6c7ea3");
+    rect(hx+28, base-42, 60, 8, "#7d90b8");
+    rect(hx+34, base-24, 48, 24, "#232b46");
+    // control tower
+    const tx = hx + 170;
+    rect(tx, base-96, 26, 96, "#5a6a8c");
+    rect(tx-10, base-118, 46, 24, "#7d90b8");
+    rect(tx-6, base-114, 38, 14, "#0f1730");
+    // rotating radar dish on the mast
+    const ang = worldT*1.7 + i;
+    const dw = Math.abs(Math.cos(ang))*22 + 4;
+    rect(tx+13-dw/2, base-134, dw, 4, "#c8d4ea");
+    rect(tx+11, base-132, 4, 14, "#8a97b8");
+    // beacon that blinks
+    if(Math.floor(worldT*1.6 + i) % 2 === 0) rect(tx+9, base-142, 8, 8, "#ff5d73");
+    ctx2d.globalAlpha = 1;
+  }
+
+  // mid: parked planes, fuel trucks, windsocks that swing
+  const off2 = (scrollX*0.52) % 240;
+  for(let i=-1;i<CW/240+2;i++){
+    const mx = i*240 - off2, base = CH-58;
+    ctx2d.globalAlpha = 0.85;
+    // parked plane
+    rect(mx, base-12, 44, 8, "#c9d6ea"); rect(mx+30, base-20, 6, 10, "#c9d6ea");
+    rect(mx+12, base-4, 22, 4, "#8c9ab8"); rect(mx+8, base-16, 18, 4, "#e6eefc");
+    // fuel truck
+    rect(mx+90, base-14, 34, 10, "#ffd23f"); rect(mx+86, base-8, 42, 6, "#8a6a00");
+    rect(mx+92, base-2, 8, 4, "#1a1a24"); rect(mx+114, base-2, 8, 4, "#1a1a24");
+    // windsock: mast plus a cone that swings with the wind
+    const sway = Math.sin(worldT*2.4 + i)*5;
+    rect(mx+180, base-40, 4, 40, "#9aa7c4");
+    rect(mx+184, base-40+sway, 14, 10, "#ff5d73");
+    rect(mx+198, base-38+sway*1.3, 10, 8, "#ffd23f");
+    ctx2d.globalAlpha = 1;
+  }
+}
+
+// L3 — NEON HARBOR: lit skyline, flickering signs, sweeping searchlights, rain.
+function drawHarbor(lvl){
+  drawStars(2, 0.5);
+
+  // searchlight beams sweeping from the rooftops
+  for(let k=0;k<2;k++){
+    const ox = 250 + k*430, oy = CH-150;
+    const ang = -Math.PI/2 + Math.sin(worldT*0.45 + k*2.1)*0.75;
+    ctx2d.save();
+    ctx2d.translate(ox, oy); ctx2d.rotate(ang);
+    const grad = ctx2d.createLinearGradient(0,0,0,-460);
+    grad.addColorStop(0, "rgba(200,91,255,0.30)");
+    grad.addColorStop(1, "rgba(200,91,255,0)");
+    ctx2d.fillStyle = grad;
+    ctx2d.beginPath(); ctx2d.moveTo(-6,0); ctx2d.lineTo(-54,-460); ctx2d.lineTo(54,-460); ctx2d.lineTo(6,0);
+    ctx2d.closePath(); ctx2d.fill();
+    ctx2d.restore();
+  }
+
+  // far skyline
+  const off1 = (scrollX*0.2) % 110;
+  for(let i=-1;i<CW/110+2;i++){
+    const bx = i*110 - off1, bh = 90 + hash(i)*130;
+    rectA(bx, CH-96-bh, 78, bh, "#2a1450", 0.9);
+    // window grid, a few panes flickering on their own clocks
+    for(let wy=0; wy<bh-18; wy+=18){
+      for(let wx=8; wx<66; wx+=16){
+        const h2 = hash(i*31 + wy + wx);
+        if(h2 < 0.45) continue;
+        const on = (Math.sin(worldT*(0.8+h2*2) + h2*40) > -0.3);
+        rectA(bx+wx, CH-96-bh+wy+8, 8, 8, on ? "#ffd66b" : "#3a2060", on?0.85:0.5);
+      }
+    }
+  }
+
+  // near strip: neon signs blinking on a rooftop parapet
+  const off2 = (scrollX*0.55) % 260;
+  const NEON = ["#ff5d73","#3fe0ff","#ffd23f","#4ce07a"];
+  for(let i=-1;i<CW/260+2;i++){
+    const bx = i*260 - off2, bh = 60 + hash(i*3)*60, top = CH-64-bh;
+    rectA(bx, top, 130, bh, "#170a2e", 0.95);
+    const col = NEON[Math.floor(hash(i*5)*NEON.length)];
+    const lit = Math.sin(worldT*3.1 + i*2) > -0.55;
+    ctx2d.globalAlpha = lit ? 0.95 : 0.25;
+    rect(bx+14, top+12, 96, 8, col);
+    rect(bx+14, top+28, 60, 6, col);
+    rect(bx+96, top+28, 14, 6, col);
+    ctx2d.globalAlpha = lit ? 0.20 : 0.06;
+    rect(bx+4, top+2, 118, 44, col);
+    ctx2d.globalAlpha = 1;
+  }
+
+  // rain streaks, fast layer
+  for(let i=0;i<70;i++){
+    const rx = (hash(i)*CW*1.4 - (worldT*620 + scrollX*0.8) % (CW*1.4) + CW*1.4) % (CW*1.4) - CW*0.2;
+    const ry = (hash(i+99)*CH + worldT*720) % CH;
+    rectA(rx, ry, 2, 12, "#9fd8ff", 0.28);
+  }
+}
+
+// L4 — MAGMA DRIFT: erupting cones, rising embers, pulsing lava cracks, ash.
+function drawMagma(lvl){
+  // heat haze band across the horizon, breathing
+  const pulse = 0.10 + 0.05*Math.sin(worldT*1.3);
+  ctx2d.globalAlpha = pulse; ctx2d.fillStyle = "#ff7a2f";
+  ctx2d.fillRect(0, CH-220, CW, 220); ctx2d.globalAlpha = 1;
+
+  // floating rock islands, slow layer
+  const off0 = (scrollX*0.14) % 340;
+  for(let i=-1;i<CW/340+2;i++){
+    const ix = i*340 - off0, iy = 90 + hash(i)*80 + Math.sin(worldT*0.8+i)*8;
+    rectA(ix, iy, 86, 20, "#3a1a14", 0.85);
+    rectA(ix+12, iy+20, 60, 14, "#2a1210", 0.85);
+    rectA(ix+26, iy+34, 28, 10, "#1c0c0a", 0.85);
+    rectA(ix+8, iy-6, 30, 8, "#54241a", 0.85);
+  }
+
+  // volcano cones that erupt on staggered timers
+  const off1 = (scrollX*0.26) % 320;
+  for(let i=-1;i<CW/320+2;i++){
+    const vx = i*320 - off1, base = CH-70, vh = 120 + hash(i*7)*70;
+    // stepped cone
+    for(let s=0;s<7;s++){
+      const w = 150 - s*18, h = vh/7;
+      rectA(vx + (150-w)/2, base - (s+1)*h, w, h+1, s>4 ? "#5a2418" : "#3a1a14", 0.95);
+    }
+    // glowing crater mouth
+    const crater = vx + 60;
+    rectA(crater, base-vh-4, 30, 8, "#ff9d3f", 0.9);
+    // eruption: a burst every ~4.5s, staggered per cone
+    const ph = (worldT*0.22 + hash(i*11)) % 1;
+    if(ph < 0.28){
+      const u = ph/0.28;
+      for(let e=0;e<12;e++){
+        const a = hash(i*17+e);
+        const ex = crater + 15 + (a-0.5)*130*u;
+        const ey = base - vh - 8 - u*170*(0.5+a*0.9) + u*u*90;
+        rectA(ex, ey, 5, 5, a<0.5 ? "#ffd23f" : "#ff5d3f", Math.max(0, 1-u));
+      }
+      rectA(crater-4, base-vh-14, 38, 12, "#ffd23f", (1-u)*0.5);
+    }
+  }
+
+  // drifting ash
+  for(let i=0;i<50;i++){
+    const ax = (hash(i)*CW*1.3 - (worldT*70 + scrollX*0.4) % (CW*1.3) + CW*1.3) % (CW*1.3);
+    const ay = (hash(i+41)*CH + Math.sin(worldT*0.6+i)*14 + worldT*22) % CH;
+    rectA(ax, ay, 3, 3, "#c8b8b0", 0.30);
+  }
+
+  // lava river at the base, cracks pulsing
+  rect(0, CH-64, CW, 40, "#2a0a06");
+  const offL = (scrollX*0.75) % 60;
+  for(let i=-1;i<CW/60+2;i++){
+    const lx = i*60 - offL;
+    const glow = 0.45 + 0.35*Math.sin(worldT*2.4 + i);
+    rectA(lx, CH-56, 44, 10, "#ff5d3f", glow);
+    rectA(lx+8, CH-52, 26, 4, "#ffd23f", glow);
+  }
+}
+
+// L5 — ORBITAL VOID: a chunky planet, a military platform with turning dish
+// arrays, patrolling saucers with tractor beams, pulsing circuit rails.
+function drawOrbital(lvl){
+  drawStars(3, 0.75);
+
+  // The planet sits low in the bottom-right corner, mostly off-canvas. Centred
+  // higher it swallowed the right third of the play area and hazards entering
+  // from that edge lost contrast against it.
+  const pcx = 1040, pcy = 470, pr = 215;
+  ctx2d.save();
+  ctx2d.beginPath(); ctx2d.arc(pcx, pcy, pr, 0, Math.PI*2); ctx2d.clip();
+  ctx2d.fillStyle = "#6b6f63"; ctx2d.fillRect(pcx-pr, pcy-pr, pr*2, pr*2);
+  for(let i=0;i<46;i++){
+    const a = hash(i)*6.283, rr = hash(i+7)*pr;
+    const spin = (worldT*10) % (pr*2);
+    let gx = pcx + Math.cos(a)*rr - spin;
+    if(gx < pcx-pr) gx += pr*2;
+    const gy = pcy + Math.sin(a)*rr;
+    const sz = 16 + hash(i+13)*34;
+    rectA(gx, gy, sz, sz*0.7, hash(i+3) < 0.5 ? "#7f9c4a" : "#5c7a38", 0.95);
+  }
+  // terminator shading on the dark limb
+  const tg = ctx2d.createLinearGradient(pcx-pr, 0, pcx+pr, 0);
+  tg.addColorStop(0, "rgba(0,0,0,0.62)"); tg.addColorStop(0.55, "rgba(0,0,0,0)");
+  ctx2d.fillStyle = tg; ctx2d.fillRect(pcx-pr, pcy-pr, pr*2, pr*2);
+  ctx2d.restore();
+  ctx2d.globalAlpha = 0.16; ctx2d.strokeStyle = "#7fe0ff"; ctx2d.lineWidth = 8;
+  ctx2d.beginPath(); ctx2d.arc(pcx, pcy, pr+4, 0, Math.PI*2); ctx2d.stroke();
+  ctx2d.globalAlpha = 1;
+
+  // military platform silhouettes with rotating dish arrays
+  const off1 = (scrollX*0.24) % 380;
+  for(let i=-1;i<CW/380+2;i++){
+    const sx = i*380 - off1, sy = 96 + hash(i)*60;
+    ctx2d.globalAlpha = 0.92;
+    rect(sx, sy, 150, 22, "#7c8496");          // deck
+    rect(sx+10, sy+22, 130, 10, "#565d6e");
+    rect(sx+40, sy-26, 70, 26, "#8d95a8");     // command block
+    rect(sx+50, sy-20, 50, 12, "#3a1d5e");     // lit bridge windows
+    if(Math.floor(worldT*2 + i)%2===0) rect(sx+54, sy-18, 10, 8, "#ff5d73");
+    // three dishes turning at different rates
+    for(let d=0; d<3; d++){
+      const dx = sx + 22 + d*48, ang = worldT*(1.1 + d*0.4) + i;
+      const dw = Math.abs(Math.cos(ang))*20 + 5;
+      rect(dx-2, sy-16, 4, 16, "#8d95a8");
+      rect(dx-dw/2, sy-22, dw, 5, "#cfd8e8");
+    }
+    // engine glow beneath
+    const gl = 0.4 + 0.3*Math.sin(worldT*4 + i);
+    rectA(sx+34, sy+32, 18, 8, "#3fe0ff", gl);
+    rectA(sx+96, sy+32, 18, 8, "#3fe0ff", gl);
+    ctx2d.globalAlpha = 1;
+  }
+
+  // patrolling saucers, tractor beams cast downward
+  for(let k=0;k<3;k++){
+    const spd = 40 + k*22;
+    const ux = CW + 80 - ((worldT*spd + k*400 + scrollX*0.12) % (CW+300));
+    const uy = 210 + Math.sin(worldT*1.1 + k*2)*26 + k*44;
+    const beam = ctx2d.createLinearGradient(0, uy, 0, uy+150);
+    beam.addColorStop(0, "rgba(200,91,255,0.30)");
+    beam.addColorStop(1, "rgba(200,91,255,0)");
+    ctx2d.fillStyle = beam;
+    ctx2d.beginPath(); ctx2d.moveTo(ux-8, uy+6); ctx2d.lineTo(ux-34, uy+150);
+    ctx2d.lineTo(ux+34, uy+150); ctx2d.lineTo(ux+8, uy+6); ctx2d.closePath(); ctx2d.fill();
+    rect(ux-26, uy, 52, 8, "#b9c3d6");
+    rect(ux-14, uy-8, 28, 8, "#e6eefc");
+    rect(ux-8, uy-6, 16, 4, "#c85bff");
+    for(let d=0; d<3; d++){
+      const on = (Math.floor(worldT*6 + d + k) % 3) === d;
+      rectA(ux-18+d*16, uy+8, 6, 4, on ? "#ffd23f" : "#5a6480", on?1:0.6);
+    }
+  }
+
+  // circuit rails pulsing along the ceiling and floor
+  const offR = (scrollX*0.9) % 120;
+  for(let i=-1;i<CW/120+2;i++){
+    const rx = i*120 - offR;
+    const p = (Math.sin(worldT*3 - i*0.7)+1)/2;
+    rectA(rx, GROUND_MARGIN-6, 80, 3, "#3fe0ff", 0.15 + p*0.55);
+    rectA(rx+40, CH-GROUND_MARGIN+3, 80, 3, "#3fe0ff", 0.15 + (1-p)*0.55);
+  }
+}
+
+function drawBackground(){
+  const lvl = LEVELS[currentLevel];
+  const g = ctx2d.createLinearGradient(0,0,0,CH);
+  g.addColorStop(0, lvl.sky[0]); g.addColorStop(1, lvl.sky[1]);
+  ctx2d.fillStyle = g; ctx2d.fillRect(0,0,CW,CH);
+
+  if(lvl.theme === "airfield")      drawAirfield(lvl);
+  else if(lvl.theme === "harbor")   drawHarbor(lvl);
+  else if(lvl.theme === "magma")    drawMagma(lvl);
+  else if(lvl.theme === "orbital")  drawOrbital(lvl);
+  else {
+    // LEVEL 1 — unchanged from v3: blocky mountains over a mid-block ridge.
+    const off1 = (scrollX*0.25) % 80;
+    ctx2d.globalAlpha = 0.35;
+    for(let i=-1;i<CW/80+2;i++){
+      const bx = i*80 - off1;
+      const bh = 60 + ((i*37)%3)*20;
+      rect(bx, CH-100-bh, 60, bh, lvl.accent);
+    }
+    ctx2d.globalAlpha = 0.5;
+    const off2 = (scrollX*0.55) % 60;
+    for(let i=-1;i<CW/60+2;i++){
+      const bx = i*60 - off2;
+      const bh = 30 + ((i*53)%4)*14;
+      rect(bx, CH-70-bh, 40, bh, lvl.sky[1]);
+    }
+    ctx2d.globalAlpha = 1;
+  }
+
+  // ground strip
+  rect(0, CH-GROUND_MARGIN+8, CW, GROUND_MARGIN-8, lvl.ground);
+  const offG = (scrollX*1.0) % 24;
+  ctx2d.globalAlpha = 0.5;
+  for(let i=-1;i<CW/24+2;i++){
+    rect(i*24-offG, CH-GROUND_MARGIN+8, 12, GROUND_MARGIN-8, lvl.accent);
+  }
+  ctx2d.globalAlpha = 1;
+  // L2 runway: sequenced approach strobes chase forward along the deck
+  if(lvl.theme === "airfield"){
+    const n = 12, seq = Math.floor(worldT*9) % n;
+    for(let i=0;i<n;i++){
+      const lx = ((i*84 - (scrollX*1.0) % 84) + CW+84) % (CW+84) - 42;
+      rectA(lx, CH-GROUND_MARGIN+10, 22, 5, "#ffffff", i===seq ? 1 : 0.22);
+    }
+  }
+  // ceiling strip
+  rect(0, 0, CW, GROUND_MARGIN-8, lvl.ground);
+  ctx2d.globalAlpha = 0.5;
+  for(let i=-1;i<CW/24+2;i++){
+    rect(i*24-offG, 0, 12, GROUND_MARGIN-8, lvl.accent);
+  }
+  ctx2d.globalAlpha = 1;
+}
+
+// Final-approach gantry: slides in once obstacle spawning has stopped, so the
+// quiet stretch before the burger reads as arrival rather than as dead air.
+function drawApproachBeacon(){
+  if(!approach || !approach.closed || approach.beaconX == null) return;
+  const x = approach.beaconX;
+  if(x < -300 || x > CW+320) return;
+  const lvl = LEVELS[currentLevel];
+  // twin pylons + gantry beam across the top
+  rect(x, GROUND_MARGIN, 16, CH-GROUND_MARGIN*2, "#2a3050");
+  rect(x+250, GROUND_MARGIN, 16, CH-GROUND_MARGIN*2, "#2a3050");
+  rect(x, GROUND_MARGIN, 266, 16, "#2a3050");
+  rect(x+6, GROUND_MARGIN+6, 254, 4, lvl.accent);
+  // chevrons pointing the way in
+  for(let i=0;i<5;i++){
+    const on = (Math.floor(worldT*7) % 5) === i;
+    rectA(x+40+i*44, CH/2-14, 26, 28, lvl.accent, on ? 1 : 0.22);
+  }
+  ctx2d.fillStyle = lvl.accent;
+  ctx2d.font = "12px 'Press Start 2P', monospace";
+  ctx2d.textAlign = "center";
+  ctx2d.fillText("SNACK AHEAD", x+133, GROUND_MARGIN+52);
+}
+
+function drawObstacle(ob){
+  if(ob.fade != null) ctx2d.globalAlpha = ob.fade;
+  drawObstacleBody(ob);
+  ctx2d.globalAlpha = 1;
+}
+
+function drawObstacleBody(ob){
+  /* ---- level 5 hazards ---- */
+  if(ob.type === "laserGate"){
+    const top = (ob.orient === "top");
+    const hh = GROUND_MARGIN + ob.housing;                 // housing height
+    const hy = top ? 0 : CH - hh;                          // housing top edge
+    const muzzle = top ? hh : CH - hh;                     // where the beam starts
+    const cx = ob.x + ob.w/2;
+    const dir = top ? 1 : -1;
+
+    // housing
+    rect(ob.x, hy, ob.w, hh, "#39435e");
+    rect(ob.x+3, hy+3, ob.w-6, hh-6, "#4e5b7d");
+    for(let i=0;i<3;i++) rect(ob.x+6, hy + (top ? 6+i*8 : hh-12-i*8), ob.w-12, 4, "#2a3145");
+    // muzzle block + a warning strip that shows the emitter's current state
+    rect(ob.x+2, top ? muzzle-8 : muzzle, ob.w-4, 8, "#8f9ec4");
+    rectA(ob.x+8, top ? muzzle-14 : muzzle+6, ob.w-16, 6,
+          ob.beamOn ? "#ff5d73" : (ob.charging ? "#ffd23f" : "#5a6480"), 1);
+
+    if(ob.beamOn){
+      rectA(cx-12, Math.min(muzzle, muzzle + dir*ob.beamLen), 24, ob.beamLen, "#ff5d73", 0.22);
+      rect(cx-5, Math.min(muzzle, muzzle + dir*ob.beamLen), 10, ob.beamLen, "#ff5d73");
+      rect(cx-2, Math.min(muzzle, muzzle + dir*ob.beamLen), 4,  ob.beamLen, "#fff2b0");
+      // crackle plus a bright cap where the beam terminates in mid-air
+      for(let d=6; d<ob.beamLen-4; d+=16){
+        if(hash(d + Math.floor(worldT*20)) < 0.4) rect(cx-9, muzzle + dir*d, 18, 3, "#ffd23f");
+      }
+      const tip = muzzle + dir*ob.beamLen;
+      rectA(cx-14, tip - (top?6:0), 28, 6, "#ffd23f", 0.9);
+      rectA(cx-20, tip - (top?10:-4), 40, 4, "#ffd23f", 0.35);
+    } else {
+      // dotted ghost of the beam's reach, brightening into a charge-up
+      const c = ob.charging;
+      for(let d=10; d<ob.beamLen; d+=18)
+        rectA(cx-2, muzzle + dir*d, 4, 8, "#ff5d73", c ? 0.8 : 0.18);
+      if(c) rectA(cx-16, muzzle + (top?0:-10), 32, 10, "#ffd23f", 0.9);
+    }
+    return;
+  }
+  if(ob.type === "crusher"){
+    const gy = ob.gapCenter, gh = ob.gapH;
+    const topH = Math.max(0, gy-gh/2), botY = gy+gh/2;
+    const closing = ob.gapH < ob.gapMin + (ob.gapMax-ob.gapMin)*0.3;
+    const face = closing ? "#ff5d73" : "#ffb04d";
+    // upper piston
+    rect(ob.x, 0, ob.w, topH, "#4a4250");
+    rect(ob.x+4, 0, ob.w-8, topH-8, "#5f5568");
+    rect(ob.x, Math.max(0,topH-10), ob.w, 10, face);
+    for(let i=0;i<Math.floor(ob.w/16);i++) rect(ob.x+4+i*16, Math.max(0,topH-16), 8, 8, "#2b2531");
+    // lower piston
+    rect(ob.x, botY, ob.w, CH-botY, "#4a4250");
+    rect(ob.x+4, botY+8, ob.w-8, CH-botY-8, "#5f5568");
+    rect(ob.x, botY, ob.w, 10, face);
+    for(let i=0;i<Math.floor(ob.w/16);i++) rect(ob.x+4+i*16, botY+10, 8, 8, "#2b2531");
+    // hazard stripes on the shafts
+    ctx2d.globalAlpha = 0.35;
+    for(let y=8; y<topH-18; y+=20) rect(ob.x+6, y, ob.w-12, 6, "#ffd23f");
+    for(let y=botY+22; y<CH-8; y+=20) rect(ob.x+6, y, ob.w-12, 6, "#ffd23f");
+    ctx2d.globalAlpha = 1;
+    return;
+  }
+  if(ob.type === "monolith"){
+    [[0, ob.gapY], [ob.gapY+ob.gapH, CH-(ob.gapY+ob.gapH)]].forEach(([py,ph])=>{
+      rect(ob.x, py, ob.w, ph, "#1b1f36");
+      rect(ob.x+3, py+3, ob.w-6, ph-6, "#2b3252");
+      // faint circuitry running down the slab
+      for(let y=py+14; y<py+ph-10; y+=26){
+        rectA(ob.x+8, y, ob.w-16, 3, "#3fe0ff", 0.22);
+        rectA(ob.x+ob.w-14, y, 5, 14, "#3fe0ff", 0.14);
+      }
+    });
+    // glowing keyhole lip
+    const gl = 0.5 + 0.4*Math.sin(worldT*3.4 + ob.x*0.01);
+    rectA(ob.x, ob.gapY-6, ob.w, 6, "#3fe0ff", gl);
+    rectA(ob.x, ob.gapY+ob.gapH, ob.w, 6, "#3fe0ff", gl);
+    return;
+  }
+  if(ob.type === "rotbar"){
+    const cx = ob.x + ob.w/2, cy = ob.y;
+    ctx2d.save();
+    ctx2d.translate(cx, cy); ctx2d.rotate(ob.ang);
+    rect(-ob.len/2, -ob.thick/2, ob.len, ob.thick, "#5b4a6e");
+    rect(-ob.len/2, -ob.thick/2, ob.len, 4, "#8f77aa");
+    // spiked tips
+    rect(-ob.len/2-8, -10, 10, 20, "#ff5d73");
+    rect(ob.len/2-2, -10, 10, 20, "#ff5d73");
+    ctx2d.restore();
+    // hub
+    rect(cx-11, cy-11, 22, 22, "#8f9ec4");
+    rect(cx-6, cy-6, 12, 12, "#39435e");
+    rectA(cx-14, cy-14, 28, 28, "#3fe0ff", 0.12);
+    return;
+  }
+
+  /* ---- classic hazards ---- */
+  if(ob.type === "block"){
+    rect(ob.x, ob.y, ob.w, ob.h, "#4a5580");
+    rect(ob.x, ob.y, ob.w, 6, "#7885c2");
+    rect(ob.x, ob.y+ob.h-6, ob.w, 6, "#262c4a");
+    rect(ob.x+4, ob.y+4, ob.w-8, ob.h-8, "#5d6aa0");
+  } else if(ob.type === "spike"){
+    const rows = Math.max(2, Math.floor(ob.h/24));
+    const rh = ob.h/rows;
+    for(let i=0;i<rows;i++){
+      const w = ob.w - i*4;
+      const xoff = (ob.w-w)/2;
+      const yy = ob.orient === "top" ? ob.y + i*rh : ob.y + ob.h - (i+1)*rh;
+      rect(ob.x+xoff, yy, w, rh-2, i%2===0 ? "#ff5d73" : "#c8283f");
+    }
+  } else if(ob.type === "spikeBlock"){
+    // dark studded block hazard — a block body bristling with spike teeth top & bottom
+    rect(ob.x, ob.y+8, ob.w, ob.h-16, "#3a3040");
+    rect(ob.x+4, ob.y+12, ob.w-8, ob.h-24, "#4d3f55");
+    // rivets
+    rect(ob.x+6, ob.y+ob.h/2-2, 4, 4, "#1c1622");
+    rect(ob.x+ob.w-10, ob.y+ob.h/2-2, 4, 4, "#1c1622");
+    // spike teeth along top
+    const teeth = Math.max(3, Math.floor(ob.w/14));
+    const tw = ob.w/teeth;
+    for(let i=0;i<teeth;i++){
+      rect(ob.x+i*tw+2, ob.y, tw-4, 10, i%2===0 ? "#ff5d73" : "#c8283f");
+    }
+    // spike teeth along bottom
+    for(let i=0;i<teeth;i++){
+      rect(ob.x+i*tw+2, ob.y+ob.h-10, tw-4, 10, i%2===0 ? "#c8283f" : "#ff5d73");
+    }
+  }
+}
+
+function drawPowerup(p){
+  const bob = Math.sin(p.bob)*6;
+  const y = p.y + bob;
+  let col = "#4ce07a", glyph = "F", size = 32;
+  if(p.kind==="shield"){ col="#3fe0ff"; glyph="S"; }
+  else if(p.kind==="slow"){ col="#c85bff"; glyph="Z"; }
+  else if(p.kind==="star"){ col="#ffd23f"; glyph="★"; }
+  else if(p.kind==="coin"){ col="#ffe14d"; glyph="$"; size=22; }
+  else if(p.kind==="magnet"){ col="#ff9d3f"; glyph="M"; }
+  else if(p.kind==="ghost"){ col="#d7f5ff"; glyph="G"; }
+  else if(p.kind==="wingman"){ col="#ff9d3f"; glyph="W"; size=36; }
+
+  if(p.fade != null) ctx2d.globalAlpha = p.fade;
+
+  // soft glow ring behind every powerup for extra pop
+  const glowR = size*0.9 + Math.sin(performance.now()/220 + p.bob)*3;
+  ctx2d.globalAlpha = 0.22;
+  ctx2d.fillStyle = col;
+  ctx2d.beginPath(); ctx2d.arc(p.x, y, glowR, 0, Math.PI*2); ctx2d.fill();
+  ctx2d.globalAlpha = 1;
+
+  rect(p.x-size/2, y-size/2, size, size, "#0a0e1a");
+  rect(p.x-size/2+3, y-size/2+3, size-6, size-6, col);
+  ctx2d.fillStyle = "#0a0e1a";
+  ctx2d.font = "bold " + Math.round(size*0.44) + "px monospace";
+  ctx2d.textAlign = "center"; ctx2d.textBaseline = "middle";
+  ctx2d.fillText(glyph, p.x, y+1);
+  ctx2d.textBaseline = "alphabetic";
+  ctx2d.globalAlpha = 1;
+}
+
+// The escort itself: a smaller plane in the player's livery, plus its bolts.
+function drawWingmanAndBolts(){
+  for(const b of bolts){
+    rectA(b.x-14, b.y-2, 20, 4, "#ffd23f", 0.5);
+    rect(b.x-8, b.y-3, 14, 6, "#ff9d3f");
+    rect(b.x-2, b.y-2, 8, 4, "#fff2b0");
+  }
+  if(!wingman) return;
+  const style = PLANE_STYLES[selectedPlaneIdx];
+  if(wingman.alive){
+    const flick = wingman.life < 3 && Math.floor(worldT*8)%2===0;
+    ctx2d.globalAlpha = flick ? 0.4 : 1;
+    // tether line back to the player so the pairing reads at a glance
+    ctx2d.globalAlpha *= 0.35;
+    ctx2d.strokeStyle = "#ff9d3f"; ctx2d.lineWidth = 2;
+    ctx2d.beginPath(); ctx2d.moveTo(wingman.x+18, wingman.y+8);
+    ctx2d.lineTo(PLANE_X-18, plane.y-8); ctx2d.stroke();
+    ctx2d.globalAlpha = flick ? 0.4 : 1;
+    drawPlane(wingman.x, wingman.y, style, 1.0, { thrust:true, tilt:-0.08 });
+    ctx2d.globalAlpha = 1;
+  } else {
+    // going down: tumbling, trailing smoke
+    ctx2d.save();
+    ctx2d.translate(wingman.x, wingman.y);
+    ctx2d.rotate(wingman.deathT*5);
+    drawPlane(0, 0, style, 1.0, { flicker:true });
+    ctx2d.restore();
+    for(let i=0;i<3;i++){
+      rectA(wingman.x + hash(i+Math.floor(worldT*30))*20-10,
+            wingman.y - 14 - i*10, 6, 6, "#6b6f7a", 0.5 - i*0.12);
+    }
+  }
+}
+
+function drawBurger(gx, gy, s, opts){
+  opts = opts || {};
+  // Bob off the animation clock when one is supplied so a scrubbed frame is
+  // reproducible; fall back to wall clock for the free-floating win-screen burgers.
+  const bobT = (opts.t != null) ? opts.t*1000 : performance.now();
+  const bob = opts.eaten ? 0 : Math.sin(bobT/260)*5;
+  const shrink = opts.eaten ? Math.max(0, 1-(opts.eatenProgress||0)) : 1;
+  if(shrink <= 0.02) return;
+
+  ctx2d.save();
+  ctx2d.translate(gx, gy + bob);
+  ctx2d.scale(shrink, shrink);
+  if(!opts.eaten){
+    ctx2d.globalAlpha = 0.16;
+    ctx2d.fillStyle = "#ffd23f";
+    ctx2d.beginPath(); ctx2d.arc(0,0, 46*s, 0, Math.PI*2); ctx2d.fill();
+    ctx2d.globalAlpha = 1;
+  }
+
+  const B = (x,y,w,h,c)=> rect(-35*s + x*s, -32*s + y*s, w*s, h*s, c);
+
+  // top bun (stepped dome for pixel rounding)
+  B(16,0,38,7,"#e0a24a");
+  B(9,7,52,7,"#e0a24a");
+  B(4,14,62,9,"#f2b25c");
+  B(20,4,4,3,"#fff7d6"); B(34,2,4,3,"#fff7d6"); B(46,6,4,3,"#fff7d6");
+  // lettuce
+  B(2,23,66,8,"#5ac95a");
+  B(2,23,8,8,"#3f9e46"); B(56,23,10,8,"#3f9e46");
+  // tomato
+  B(6,31,58,6,"#e2453f");
+  // patty
+  B(4,37,62,11,"#6b3f26");
+  B(4,37,62,3,"#8a5535");
+  // cheese drip
+  B(2,48,66,6,"#ffd23f");
+  B(6,48,6,10,"#ffd23f"); B(30,48,6,9,"#ffd23f"); B(54,48,6,11,"#ffd23f");
+  // bottom bun
+  B(8,54,54,9,"#e0a24a");
+  B(14,63,42,6,"#c98a3a");
+
+  ctx2d.restore();
+}
+
+function drawParticles(){
+  for(const pt of particles){
+    const alpha = 1 - pt.age/pt.life;
+    rectA(pt.x, pt.y, pt.size, pt.size, pt.color, Math.max(0,alpha));
+  }
+}
+function drawFloatTexts(){
+  for(const ft of floatTexts){
+    const alpha = 1 - ft.age/ft.life;
+    ctx2d.globalAlpha = Math.max(0,alpha);
+    ctx2d.fillStyle = ft.color;
+    ctx2d.font = "10px 'Press Start 2P', monospace";
+    ctx2d.textAlign = "center";
+    ctx2d.fillText(ft.text, ft.x, ft.y);
+    ctx2d.globalAlpha = 1;
+  }
+}
+
+function draw(){
+  if(state === "menu"){ return; }
+
+  // Screen shake wraps the whole frame: decays to zero, small enough to feel
+  // like impact rather than a camera fault.
+  const shaking = shakeT > 0;
+  if(shaking){
+    // Paint the full frame first — the translate below would otherwise expose
+    // bare canvas along two edges.
+    rect(0, 0, CW, CH, LEVELS[currentLevel].sky[1]);
+    const k = Math.min(14, shakeT * shakeMag * 4);
+    ctx2d.save();
+    ctx2d.translate((Math.random()-0.5)*k, (Math.random()-0.5)*k);
+  }
+
+  drawBackground();
+  drawApproachBeacon();
+
+  if(state === "winanim"){
+    // rainbow party overlay wash for extra festivity
+    const hue = (winAnim.t*40) % 360;
+    ctx2d.globalAlpha = 0.10;
+    ctx2d.fillStyle = `hsl(${hue},80%,55%)`;
+    ctx2d.fillRect(0,0,CW,CH);
+    ctx2d.globalAlpha = 1;
+    for(const b of winAnim.burgers) drawBurger(b.x, b.y, 0.55, {});
+  } else {
+    for(const ob of obstacles) drawObstacle(ob);
+    for(const p of powerups) drawPowerup(p);
+  }
+
+  if(state === "levelclearanim" && burgerAnim){
+    const eatenProgress = burgerAnim.eaten
+      ? Math.min(1, (burgerAnim.t-BURGER_APPROACH)/BURGER_EAT) : 0;
+    drawBurger(burgerAnim.x, burgerAnim.y, burgerScaleAt(burgerAnim.t),
+               { eaten:burgerAnim.eaten, eatenProgress, t:burgerAnim.t });
+  }
+
+  drawParticles();
+
+  const showPlane = ["playing","countdown","crashed","levelcomplete","levelclearanim","winanim"].includes(state);
+  if(showPlane){
+    const style = PLANE_STYLES[selectedPlaneIdx];
+    const px = (plane && plane.x!=null) ? plane.x : PLANE_X;
+    let tilt = plane ? Math.max(-0.35, Math.min(0.5, plane.vy/900)) : 0;
+    if(state === "winanim") tilt = winAnim.t*3.4;
+    drawPlane(px, plane.y, style, 1.6, {
+      thrust: holding, shield: shieldCharges>0, glow: scoreMultiplier>1 || state==="winanim",
+      flicker: invuln>0, magnet: magnetTimer>0, phase: phaseTimer>0, tilt
+    });
+  }
+  if(state !== "winanim") drawWingmanAndBolts();
+  drawFloatTexts();
+
+  if(shaking) ctx2d.restore();
+}
+
+/* =========================================================
+   MAIN LOOP
+   ========================================================= */
+function loop(ts){
+  let dt = Math.min(0.033, (ts-lastTime)/1000 || 0);
+  lastTime = ts;
+  // Preview harness can hold the clock still while it scrubs, or run it slow
+  // for inspection; the frame is still drawn so the paused pose stays up.
+  if(PREVIEW.on){
+    dt *= PREVIEW.speed;
+    // Landscape preview: no gameplay at all, just the world scrolling so the
+    // per-level scenery animations can be tuned without playing to them.
+    if(PREVIEW.mode === "level"){
+      if(!PREVIEW.paused){
+        worldT += dt;
+        scrollX += 260 * LEVELS[currentLevel].speedMul * dt;
+      }
+      draw();
+      rafId = requestAnimationFrame(loop);
+      return;
+    }
+    if(PREVIEW.paused){ draw(); rafId = requestAnimationFrame(loop); return; }
+  }
+  // World time advances in every animated state so the landscape keeps living
+  // behind overlays and celebration animations.
+  if(state !== "menu") worldT += dt;
+  update(dt);
+  draw();
+  rafId = requestAnimationFrame(loop);
+}
+
+/* =========================================================
+   BUTTON WIRING
+   ========================================================= */
+document.getElementById("playBtn").addEventListener("click", ()=>{
+  Audio8.ensureCtx();
+  Audio8.sfxClick();
+  tryLockLandscape();
+  score = 0;
+  beginLevel(0);
+});
+
+resetBtn.addEventListener("click", ()=>{
+  Audio8.sfxClick();
+  score = Math.max(0, score - 0); // keep score, just restart current level attempt
+  beginLevel(currentLevel);
+});
+
+document.getElementById("retryBtn").addEventListener("click", ()=>{
+  Audio8.sfxClick();
+  beginLevel(currentLevel);
+});
+document.getElementById("crashMenuBtn").addEventListener("click", ()=>{
+  Audio8.sfxClick();
+  showMenu();
+});
+document.getElementById("nextLevelBtn").addEventListener("click", ()=>{
+  Audio8.sfxClick();
+  if(currentLevel < 4){
+    beginLevel(currentLevel+1);
+  } else {
+    winGame();
+  }
+});
+document.getElementById("lcMenuBtn").addEventListener("click", ()=>{
+  Audio8.sfxClick();
+  showMenu();
+});
+document.getElementById("winMenuBtn").addEventListener("click", ()=>{
+  Audio8.sfxClick();
+  showMenu();
+});
+winSkipBtn.addEventListener("click", ()=>{
+  Audio8.sfxClick();
+  if(state === "winanim") finalizeWin();
+});
+document.getElementById("muteBtn").addEventListener("click", (e)=>{
+  Audio8.ensureCtx();
+  const m = !Audio8.isMuted();
+  Audio8.setMuted(m);
+  e.target.textContent = m ? "🔇" : "🔊";
+});
+
+// prevent context menu / drag issues on mobile long-press
+window.addEventListener("contextmenu", e=>e.preventDefault());
+
+// iOS Safari ignores `user-scalable=no` in the viewport meta (since iOS 10),
+// so pinch-zoom has to be refused explicitly. These events are WebKit-only and
+// simply never fire elsewhere.
+["gesturestart","gesturechange","gestureend"].forEach(evt=>{
+  document.addEventListener(evt, e=>e.preventDefault(), {passive:false});
+});
+
+// Only block page scroll/pinch while actively over the game stage during play —
+// the menu (and its overflow-y:auto fallback) must stay scrollable.
+document.getElementById("stage").addEventListener("touchmove", e=>{
+  if(state !== "menu") e.preventDefault();
+}, {passive:false});
+
+// Keep the stage's 960x540 aspect ratio at the largest size that fits the
+// viewport, so nothing on the menu or HUD gets clipped or pushed off-screen.
+const stageEl = document.getElementById("stage");
+const HUD_H = 46; // design units (same coordinate space as CW=960) reserved for the top HUD bar
+function fitStage(){
+  const availW = window.innerWidth;
+  const availH = window.innerHeight;
+  const totalDesignH = CH + HUD_H;
+  const scale = Math.min(availW / CW, availH / totalDesignH);
+  stageEl.style.width = Math.floor(CW * scale) + "px";
+  stageEl.style.height = Math.floor(totalDesignH * scale) + "px";
+  hudBar.style.height = Math.floor(HUD_H * scale) + "px";
+}
+window.addEventListener("resize", fitStage);
+window.addEventListener("orientationchange", ()=> setTimeout(fitStage, 60));
+fitStage();
+
+// Best-effort: nudge phones into landscape + fullscreen when play starts.
+// Silently ignored wherever the browser doesn't support it (e.g. iOS Safari).
+function tryLockLandscape(){
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  try{
+    if(req){
+      const result = req.call(el);
+      if(result && result.then) result.catch(()=>{});
+    }
+    if(screen.orientation && screen.orientation.lock){
+      screen.orientation.lock("landscape").catch(()=>{});
+    }
+  }catch(err){ /* not supported — rotate-hint overlay covers this case */ }
+}
+
+document.getElementById("rotateHint").classList.add("enabled");
+
+/* =========================================================
+   ANIMATION PREVIEW MODE
+   ---------------------------------------------------------
+   plane-dash-v4.html?preview=levelclear
+     Runs the real level-clear animation in isolation, driving the same
+     startLevelClearAnim/updateLevelClearAnim/draw path the game uses, so what
+     you preview is exactly what ships.
+
+   plane-dash-v4.html?preview=level&level=4
+     Runs a level's animated landscape with gameplay switched off, so the
+     parallax, radar dishes, eruptions and saucers can be tuned without having
+     to survive to them. Scrub covers 40s of world time.
+
+   Optional params:  &level=0..4   &plane=0..N   &paused=1
+   ========================================================= */
+const PREVIEW_LEVEL_SPAN = 40;   // seconds of scenery the level scrub covers
+function initPreviewMode(){
+  const params = new URLSearchParams(location.search);
+  const mode = params.get("preview") || "";
+  if(mode !== "levelclear" && mode !== "level") return;
+
+  PREVIEW.on = true;
+  PREVIEW.mode = mode;
+  document.body.classList.add("preview-mode");
+  document.getElementById("rotateHint").classList.remove("enabled");
+
+  const bar     = document.getElementById("previewBar");
+  const guide   = document.getElementById("previewGuide");
+  const elPlay  = document.getElementById("pvPlayPause");
+  const elScrub = document.getElementById("pvScrub");
+  const elTime  = document.getElementById("pvTime");
+  const elLevel = document.getElementById("pvLevel");
+  const elPlane = document.getElementById("pvPlane");
+  const elSpeed = document.getElementById("pvSpeed");
+  const elLoop  = document.getElementById("pvLoop");
+  const elGuide = document.getElementById("pvGuide");
+
+  PLANE_STYLES.forEach((p, i)=>{
+    const o = document.createElement("option");
+    o.value = i; o.textContent = (p.name || ("PLANE " + (i+1))).toUpperCase();
+    elPlane.appendChild(o);
+  });
+
+  currentLevel = Math.max(0, Math.min(4, parseInt(params.get("level")  || "0", 10) || 0));
+  selectedPlaneIdx = Math.max(0, Math.min(PLANE_STYLES.length-1,
+                     parseInt(params.get("plane") || "0", 10) || 0));
+  elLevel.value = String(currentLevel);
+  elPlane.value = String(selectedPlaneIdx);
+  const isLevelMode = (mode === "level");
+  const SPAN = isLevelMode ? PREVIEW_LEVEL_SPAN : BURGER_TOTAL;
+  elScrub.max = SPAN.toFixed(2);
+  if(isLevelMode){
+    // burger-specific readouts and the art-bounds guide mean nothing here
+    document.getElementById("pvBurgerRow").style.display = "none";
+    document.getElementById("pvGuideLbl").style.display = "none";
+    document.getElementById("pvLoopLbl").style.display = "none";
+  }
+
+  // Static readouts, computed from the same constants the animation uses.
+  const pk = burgerAreaFraction(BURGER_SCALE);
+  document.getElementById("pvArea").textContent = (pk*100).toFixed(1) + "%";
+  document.getElementById("pvSize").textContent =
+    Math.round(BURGER_ART_W*BURGER_SCALE) + "×" + Math.round(BURGER_ART_H*BURGER_SCALE) + "px";
+
+  function positionGuide(){
+    const s = BURGER_SCALE;
+    guide.style.left   = ((BURGER_X - 33*s) / CW * 100) + "%";
+    guide.style.top    = ((BURGER_Y - 32*s) / CH * 100) + "%";
+    guide.style.width  = ((BURGER_ART_W*s) / CW * 100) + "%";
+    guide.style.height = ((BURGER_ART_H*s) / CH * 100) + "%";
+  }
+  positionGuide();
+  elGuide.addEventListener("change", ()=> guide.classList.toggle("on", elGuide.checked));
+
+  function restart(){
+    menuScreen.style.display = "none";
+    hudBar.style.display = "flex";
+    thrustPad.style.display = "none";
+    hideAllOverlays();
+    score = 0;
+    resetRunState();
+    updateHUDLevelLabel();
+    updateHUD();
+    state = "playing";          // the entry condition startLevelClearAnim expects
+    if(isLevelMode){
+      // Park the plane mid-screen and let only the scenery move.
+      plane.y = CH/2; plane.vy = 0;
+      spawnSchedule = [];
+      Audio8.ensureCtx();
+      Audio8.playMusic(currentLevel);   // hear the level's track + ambience too
+    } else {
+      startLevelClearAnim();
+    }
+    lastTime = performance.now();
+    if(!rafId) rafId = requestAnimationFrame(loop);
+  }
+
+  // Jump to an arbitrary point by replaying from 0 in fixed steps — the
+  // animation is time-driven, so this reproduces the real pose at time t
+  // rather than approximating it. Audio is muted across the fast-forward.
+  function seek(target){
+    if(isLevelMode){
+      // Scenery is a pure function of worldT/scrollX, so a seek is a direct set.
+      worldT = target;
+      scrollX = 260 * LEVELS[currentLevel].speedMul * target;
+      draw();
+      syncUI();
+      return;
+    }
+    const wasMuted = Audio8.isMuted();
+    Audio8.setMuted(true);
+    restart();
+    const STEP = 1/60;
+    for(let t = 0; t < target - 1e-6; t += STEP){
+      updateLevelClearAnim(Math.min(STEP, target - t));
+    }
+    Audio8.setMuted(wasMuted);
+    draw();
+    syncUI();
+  }
+
+  function phaseName(t){
+    if(t < BURGER_POP) return "POP-IN";
+    if(t < BURGER_APPROACH) return "APPROACH";
+    if(t < BURGER_APPROACH+BURGER_EAT) return "CHOMP";
+    return "HOLD";
+  }
+
+  function syncUI(){
+    if(isLevelMode){
+      const t = worldT % SPAN;
+      elScrub.value = t.toFixed(2);
+      elTime.textContent = t.toFixed(2) + "s / " + SPAN.toFixed(2) + "s  ·  " + LEVELS[currentLevel].name;
+      return;
+    }
+    const t = burgerAnim ? Math.min(burgerAnim.t, BURGER_TOTAL) : 0;
+    elScrub.value = t.toFixed(2);
+    elTime.textContent = t.toFixed(2) + "s / " + BURGER_TOTAL.toFixed(2) + "s";
+    document.getElementById("pvPhase").textContent = phaseName(t);
+  }
+
+  function setPaused(p){
+    PREVIEW.paused = p;
+    elPlay.textContent = p ? "▶ PLAY" : "❚❚ PAUSE";
+  }
+
+  // Loop instead of advancing into the level-complete overlay.
+  if(!isLevelMode){
+    onLevelClearAnimEnd = function(){
+      if(elLoop.checked){ restart(); }
+      else { setPaused(true); burgerAnim.t = BURGER_TOTAL; }
+      return true; // handled — don't call completeLevel()
+    };
+  }
+
+  elPlay.addEventListener("click", ()=>{
+    Audio8.ensureCtx();
+    if(!isLevelMode && burgerAnim && burgerAnim.t >= BURGER_TOTAL) restart();
+    setPaused(!PREVIEW.paused);
+  });
+  document.getElementById("pvReplay").addEventListener("click", ()=>{
+    Audio8.ensureCtx(); restart(); setPaused(false);
+  });
+  elScrub.addEventListener("input", ()=>{ setPaused(true); seek(parseFloat(elScrub.value)); });
+  elLevel.addEventListener("change", ()=>{ currentLevel = parseInt(elLevel.value,10); restart(); });
+  elPlane.addEventListener("change", ()=>{ selectedPlaneIdx = parseInt(elPlane.value,10); restart(); });
+  elSpeed.addEventListener("change", ()=>{ PREVIEW.speed = parseFloat(elSpeed.value); });
+  document.getElementById("pvExit").addEventListener("click", ()=>{
+    location.href = location.pathname;
+  });
+
+  // Keep the time readout live while it plays, without touching the hot loop.
+  setInterval(()=>{ if(!PREVIEW.paused) syncUI(); }, 60);
+
+  // Leave room for the control bar when sizing the stage.
+  window.removeEventListener("resize", fitStage);
+  window.addEventListener("resize", previewFit);
+  function previewFit(){
+    const reserve = bar.offsetHeight + 16;
+    const availW = window.innerWidth, availH = window.innerHeight - reserve;
+    const scale = Math.min(availW / CW, availH / (CH + HUD_H));
+    stageEl.style.width  = Math.floor(CW * scale) + "px";
+    stageEl.style.height = Math.floor((CH + HUD_H) * scale) + "px";
+    hudBar.style.height  = Math.floor(HUD_H * scale) + "px";
+  }
+  requestAnimationFrame(previewFit);
+
+  restart();
+  setPaused(params.get("paused") === "1");
+  syncUI();
+}
+
+// initial idle render behind the menu
+drawBackground();
+showMenu();
+initPreviewMode();
+
+})();
+</script>
+</body>
+</html>
