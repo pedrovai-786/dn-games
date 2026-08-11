@@ -726,7 +726,11 @@ const PLANE_STYLES = [
   { name:"COBALT STREAK",  body:"#3fa9ff", accent:"#e8faff", dark:"#1a5aa8", variant:"jet" },
   { name:"EMERALD DASH",   body:"#3ee06b", accent:"#ffe94d", dark:"#1a8a3d", variant:"dart" },
   { name:"AMBER BLAZE",    body:"#ff9d3f", accent:"#7a1010", dark:"#a85a1a", variant:"biplane" },
-  { name:"VIOLET NOVA",    body:"#b25bff", accent:"#ff9de8", dark:"#5a1aa8", variant:"stealth" }
+  // A wide-body airliner among the arcade jets: bare-metal fuselage, blue
+  // cheatline, banded tail, and the twin underwing engines none of the others
+  // have — that pair of nacelles is what reads as "airliner" at this size.
+  { name:"SILVER FLAGSHIP", body:"#d9dde3", accent:"#2b62a8", dark:"#9aa3ad", variant:"airliner",
+    crown:"#f2f5f8", stripeRed:"#d0233b", stripeBlue:"#2b62a8", engine:"#b7bec8" }
 ];
 
 // Draw a blocky pixel-style plane facing right, centered at (x,y), scale s
@@ -774,6 +778,72 @@ function drawPlane(gx, gy, style, s, opts){
 
   const B = (x,y,w,h,c)=> rect(-22*s + x*s, -10*s + y*s, w*s, h*s, c);
 
+  planeBody(B, style);
+
+  // exhaust: a jet gets a flame, the airliner gets engine haze — a wide-body
+  // trailing rocket fire would undo all the work the silhouette is doing
+  if(opts.thrust){
+    if(style.variant === "airliner"){
+      const puff = 3 + Math.sin(performance.now()/45)*2;
+      const prev = ctx2d.globalAlpha;
+      ctx2d.globalAlpha = prev * 0.5;
+      B(12-puff, 12.2, 6+puff, 1.6, "#c9d2dc");
+      B(14-puff, 9.4,  4+puff, 1.3, "#e4eaf1");
+      ctx2d.globalAlpha = prev;
+    } else {
+      const flick = 5 + Math.sin(performance.now()/35)*3;
+      B(-6,2,8+flick,8, "#ff5d73");
+      B(-4,3,6+flick,6, "#ffd23f");
+      B(-2,4,3+flick,4, "#fff2b0");
+    }
+  }
+
+  ctx2d.globalAlpha = 1;
+  ctx2d.restore();
+}
+
+/* The block layout for every plane, in the shared B() coordinate space so the
+   in-game sprite and the menu thumbnail can never drift apart. */
+function planeBody(B, style){
+  const b = style.body, a = style.accent, d = style.dark;
+
+  if(style.variant === "airliner"){
+    const cr = style.crown, R = style.stripeRed, BL = style.stripeBlue, EN = style.engine;
+    // tailplane
+    B(0,3.6,8,1.8, d);
+    B(1,1.4,6,1.4, cr);
+    // Vertical fin, stepped so it rakes back, carrying three bands. The banded
+    // tail is the strongest identifier at this size, so it gets the detail.
+    for(let k=0;k<6;k++){
+      const yy = 2 - (k+1)*2, w = 8 - k*1.15;
+      B(2, yy, w, 2.2, "#eef2f7");                          // white body
+      B(2, yy, Math.max(1.2, w*0.34), 2.2, BL);             // blue trailing edge
+      B(2 + w*0.68, yy, Math.max(1.2, w*0.32), 2.2, R);     // red leading edge
+    }
+    // fuselage
+    B(4,2,36,8, b);
+    B(6,2,32,1.8, cr);               // sunlit crown
+    B(6,8.4,32,1.6, d);              // shadowed belly
+    B(39,3.4,3,5.2, b);              // stepped nose
+    B(41.5,4.4,2,3, b);
+    B(42,4.6,1.2,1.8, cr);
+    B(36.4,3.4,2.6,1.8, "#1b2734");  // flight-deck glass
+    // thin cheatline with a window line riding above it
+    B(8,5.4,29,1.1, BL);
+    for(let i=0;i<7;i++) B(11+i*4, 3.9, 1.8, 1.1, "#8b95a3");
+    // far wing above, near wing below, both swept back
+    B(18,0.8,12,1.8, d);
+    B(14,10,16,2.6, d);
+    B(11,11.6,8,2, d);               // raked tip
+    // engines — two underslung nacelles are what say "airliner" at this size
+    B(20,8.6,6,2.4, EN);             // far nacelle, tucked behind the wing
+    B(21,10,3,1.6, d);               // pylon
+    B(18.5,11.2,8,3.4, EN);          // near nacelle
+    B(25.6,11.2,1.6,3.4, cr);        // intake lip catching the light
+    B(17.6,12,1.6,1.8, "#39404a");   // exhaust cone
+    return;
+  }
+
   // tail fin
   B(0,-2,6,10, d);
   // fuselage core blocks
@@ -802,16 +872,6 @@ function drawPlane(gx, gy, style, s, opts){
     B(6,11,28,3, d);
     B(14,-7,20,4, b);
   }
-  // exhaust flame if thrusting
-  if(opts.thrust){
-    const flick = 5 + Math.sin(performance.now()/35)*3;
-    B(-6,2,8+flick,8, "#ff5d73");
-    B(-4,3,6+flick,6, "#ffd23f");
-    B(-2,4,3+flick,4, "#fff2b0");
-  }
-
-  ctx2d.globalAlpha = 1;
-  ctx2d.restore();
 }
 
 /* =========================================================
@@ -829,7 +889,9 @@ const DIFFICULTIES = [
 
 // `theme` selects the animated landscape in drawBackground().
 const LEVELS = [
-  { name:"LEVEL 1 · DAWN RUNWAY",  theme:"dawn",    sky:["#1c2a55","#33477e"], ground:"#101733", accent:"#3fa9ff", speedMul:1.0,  densityMul:1.0 },
+  // Dawn palette lives in the sky gradient itself, so the haze colour derived
+  // from sky[1] carries the warmth into the distance instead of fighting it.
+  { name:"LEVEL 1 · DAWN RUNWAY",  theme:"dawn",    sky:["#16224d","#cf8a63"], ground:"#2a1f3a", accent:"#ffc27a", speedMul:1.0,  densityMul:1.0 },
   { name:"LEVEL 2 · AIRFIELD APPROACH", theme:"airfield", sky:["#2b3f74","#8fb6d8"], ground:"#20283f", accent:"#ffd23f", speedMul:1.12, densityMul:1.15 },
   { name:"LEVEL 3 · NEON HARBOR",  theme:"harbor",  sky:["#170a2e","#3a1266"], ground:"#0d0620", accent:"#c85bff", speedMul:1.24, densityMul:1.3 },
   { name:"LEVEL 4 · MAGMA DRIFT",  theme:"magma",   sky:["#3a0b0b","#7a1f12"], ground:"#200606", accent:"#ff5d3f", speedMul:1.38, densityMul:1.5 },
@@ -1474,21 +1536,14 @@ function renderPlaneIcons(){
 
 // Wrapper so drawPlane can target arbitrary context (menu thumbnails vs main canvas)
 function drawPlaneOnCtx(targetCtx, gx, gy, style, s, opts){
-  const b = style.body, a = style.accent, d = style.dark;
   targetCtx.save();
   targetCtx.translate(gx, gy);
-  const B = (x,y,w,h,c)=>{ targetCtx.fillStyle=c; targetCtx.fillRect(Math.round(-22*s+x*s), Math.round(-10*s+y*s), Math.round(w*s), Math.round(h*s)); };
-  B(0,-2,6,10, d);
-  B(6,2,26,8, b);
-  B(2,4,6,4, b);
-  B(30,3,8,6, d);
-  B(36,4,6,4, a);
-  B(20,0,8,4, a);
-  if(style.variant === "classic"){ B(14,10,16,4, d); B(10,-4,10,4, b); }
-  else if(style.variant === "jet"){ B(10,10,22,4, d); B(16,-6,14,5, b); }
-  else if(style.variant === "dart"){ B(16,9,10,4, d); B(20,-4,12,3, b); }
-  else if(style.variant === "biplane"){ B(10,10,18,3, d); B(10,-6,18,3, d); }
-  else if(style.variant === "stealth"){ B(6,11,28,3, d); B(14,-7,20,4, b); }
+  const B = (x,y,w,h,c)=>{
+    targetCtx.fillStyle = c;
+    targetCtx.fillRect(Math.round(-22*s+x*s), Math.round(-10*s+y*s),
+                       Math.max(1, Math.round(w*s)), Math.max(1, Math.round(h*s)));
+  };
+  planeBody(B, style);
   targetCtx.restore();
 }
 renderPlaneIcons();
@@ -1922,14 +1977,18 @@ function update(dt){
     plane.vy += THRUST_ACCEL*dt;
     if(plane.vy < MAX_RISE) plane.vy = MAX_RISE;
     if(Math.random()<0.35) Audio8.sfxThrust();
-    // exhaust plume trailing behind the plane while climbing
+    // Exhaust plume trailing behind the plane while climbing. The airliner
+    // trails engine vapour rather than rocket fire — an orange plume behind a
+    // wide-body undoes everything the silhouette is doing.
+    const jet = PLANE_STYLES[selectedPlaneIdx].variant === "airliner";
     for(let i=0;i<2;i++){
       particles.push({
         x: PLANE_X - 34 + randRange(-4,4), y: plane.y + randRange(-7,7),
         vx: randRange(-160,-80), vy: randRange(-25,35),
         life: randRange(0.22,0.42), age:0,
         size: randRange(4,9),
-        color: Math.random()<0.5 ? "#ffd23f" : "#ff9d3f",
+        color: jet ? (Math.random()<0.5 ? "#c9d2dc" : "#eef3f8")
+                   : (Math.random()<0.5 ? "#ffd23f" : "#ff9d3f"),
         noGravity:true
       });
     }
@@ -2249,21 +2308,119 @@ function updateHUD(){
    LANDSCAPES — one animated theme per level
    ---------------------------------------------------------
    All of it is decorative and allocation-free: scenery positions come from
-   hash(i) (a deterministic pseudo-random) plus scrollX/worldT, so nothing is
+   hash(idx) (a deterministic pseudo-random) plus scrollX/worldT, so nothing is
    stored per frame and the hot loop stays clean.
    --------------------------------------------------------- */
 function hash(i){ const s = Math.sin(i*127.1 + 311.7)*43758.5453; return s - Math.floor(s); }
 
+/* Scrolling tile layer.
+   Every parallax row used to loop over a *screen* slot index and key its
+   content off that index. When the scroll offset wrapped, the whole row jumped
+   one period sideways and every element simultaneously became a different
+   building — a visible snap on a fixed heartbeat (0.4s on level 1's mid ridge,
+   1.7s on level 3's skyline, 3.9s on level 5's platforms).
+
+   `idx` here is a world index: it counts up as the world scrolls, so a given
+   element keeps its identity for as long as it is on screen and new ones enter
+   from the right. Anything that varies per element — height, colour, a dish's
+   rotation phase, an eruption timer — must key off idx, never off the loop
+   counter. */
+function tiles(period, factor, cb){
+  const scroll = scrollX * factor;
+  const first  = Math.floor(scroll / period);
+  const off    = scroll - first * period;
+  const count  = Math.ceil(CW / period) + 2;
+  for(let k = -1; k < count; k++) cb(k*period - off, first + k);
+}
+
+/* Atmospheric depth. Called between layers, so haze accumulates on everything
+   already drawn: the farther back a layer is, the more sky colour sits on top
+   of it. Pushes scenery away from the player and stops background structures
+   competing with foreground hazards. */
+function hexRGBA(hex, a){
+  const n = parseInt(hex.slice(1), 16);
+  return "rgba(" + ((n>>16)&255) + "," + ((n>>8)&255) + "," + (n&255) + "," + a + ")";
+}
+function haze(alpha, y, h){
+  const sky = LEVELS[currentLevel].sky[1];
+  if(y == null){                       // airless levels: a flat veil, no seam
+    rectA(0, 0, CW, CH, sky, alpha);
+    return;
+  }
+  // A flat band leaves a hard horizontal line across the sky where it starts.
+  // Ramp it in instead, thickening toward the horizon the way real haze does.
+  const g = ctx2d.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0,    hexRGBA(sky, 0));
+  g.addColorStop(0.5,  hexRGBA(sky, alpha*0.8));
+  g.addColorStop(1,    hexRGBA(sky, alpha));
+  ctx2d.fillStyle = g;
+  ctx2d.fillRect(0, y, CW, h);
+}
+
 function drawStars(density, alpha){
-  const offS = (scrollX*0.12) % 140;
-  for(let i=-1;i<CW/140+2;i++){
+  tiles(140, 0.12, (bx, idx)=>{
     for(let j=0;j<density;j++){
-      const sx = i*140 + hash(i*7+j)*140 - offS;
-      const sy = 12 + hash(i*13+j*3)*320;
-      const tw = 0.55 + 0.45*Math.sin(worldT*2.2 + i*2 + j);
+      const sx = bx + hash(idx*7+j)*140;
+      const sy = 12 + hash(idx*13+j*3)*320;
+      const tw = 0.55 + 0.45*Math.sin(worldT*2.2 + idx*2 + j);
       rectA(sx, sy, 3, 3, "#ffffff", alpha*tw);
     }
+  });
+}
+
+// L1 — DAWN RUNWAY: the calm opener. Same silhouette language as v3, but with
+// three ridges instead of two for depth, a warm sunrise along the horizon,
+// high clouds, and the occasional flock. Nothing here is busy enough to
+// distract from learning the controls.
+function drawDawn(lvl){
+  // Sunrise sits BEHIND the ridges but IN FRONT of the haze, so the warmth
+  // survives. Drawn as a band rather than a disc — nothing round ever goes in
+  // the flight path.
+  const glow = ctx2d.createLinearGradient(0, CH*0.40, 0, CH-40);
+  glow.addColorStop(0,    "rgba(255,150,96,0)");
+  glow.addColorStop(0.6,  "rgba(255,164,92,0.16)");
+  glow.addColorStop(1,    "rgba(255,214,150,0.34)");
+  ctx2d.fillStyle = glow; ctx2d.fillRect(0, CH*0.40, CW, CH*0.60);
+
+  // high thin clouds catching the first light, barely moving
+  tiles(520, 0.05, (bx, idx)=>{
+    const by = 44 + hash(idx)*52;
+    ctx2d.globalAlpha = 0.22;
+    rect(bx+20, by, 150, 9, "#ffd9b4");
+    rect(bx+60, by-8, 80, 7, "#ffe6cf");
+    rect(bx+230, by+22, 96, 8, "#ffd9b4");
+    ctx2d.globalAlpha = 1;
+  });
+
+  // a flock crossing on a long slow pass, wings flapping
+  const flock = CW + 120 - ((worldT*46) % (CW + 900));
+  for(let b=0;b<3;b++){
+    const fx2 = flock + b*26, fy = 118 + b*12 + Math.sin(worldT*3 + b)*3;
+    const flap = Math.sin(worldT*7 + b*1.3) > 0 ? 3 : -3;
+    rectA(fx2, fy, 5, 3, "#2b3a63", 0.55);
+    rectA(fx2-5, fy-flap, 5, 3, "#2b3a63", 0.55);
+    rectA(fx2+5, fy-flap, 5, 3, "#2b3a63", 0.55);
   }
+
+  // three ridges, each a darker silhouette than the one behind it
+  tiles(80, 0.18, (bx, idx)=>{
+    const bh = 54 + hash(idx)*54;
+    rectA(bx, CH-118-bh, 62, bh, "#4a5789", 0.55);
+  });
+  haze(0.30, CH*0.34, CH*0.66);
+
+  tiles(80, 0.32, (bx, idx)=>{
+    const bh = 46 + hash(idx*5)*44;
+    rectA(bx, CH-96-bh, 58, bh, "#2c3a66", 0.75);
+  });
+  haze(0.12, CH*0.5, CH*0.5);
+
+  // near ridge, with the odd hangar block so it reads as an airfield edge
+  tiles(60, 0.55, (bx, idx)=>{
+    const bh = 28 + hash(idx*11)*50;
+    rectA(bx, CH-70-bh, 42, bh, "#1b2547", 0.92);
+    if(hash(idx*7) > 0.72) rectA(bx+8, CH-70-bh-8, 26, 8, "#2b3a63", 0.92);
+  });
 }
 
 // L2 — AIRFIELD APPROACH: control towers with live radar dishes, hangars,
@@ -2278,9 +2435,8 @@ function drawAirfield(lvl){
   ctx2d.fillStyle = wash; ctx2d.fillRect(0, CH*0.35, CW, CH*0.65);
 
   // slow cloud bank, kept high and soft
-  const offC = (scrollX*0.08) % 420;
-  for(let i=-1;i<CW/420+2;i++){
-    const bx = i*420 - offC, by = 34 + hash(i)*44;
+  tiles(420, 0.08, (bx, idx)=>{
+    const by = 34 + hash(idx)*44;
     ctx2d.globalAlpha = 0.24;
     rect(bx+14, by+10, 118, 12, "#ffffff");
     rect(bx+30, by+2,  84, 10, "#ffffff");
@@ -2288,7 +2444,7 @@ function drawAirfield(lvl){
     rect(bx+168, by+30, 74, 10, "#ffffff");
     rect(bx+184, by+22, 44, 9, "#ffffff");
     ctx2d.globalAlpha = 1;
-  }
+  });
 
   // blimp on its own slow drift, independent of the ground scroll
   const bx = CW + 120 - ((worldT*26 + scrollX*0.05) % (CW+420));
@@ -2309,10 +2465,8 @@ function drawAirfield(lvl){
   }
 
   // far hangar row + control tower with a turning radar dish
-  const off1 = (scrollX*0.22) % 300;
-  for(let i=-1;i<CW/300+2;i++){
-    const hx = i*300 - off1, base = CH-116;
-    ctx2d.globalAlpha = 0.55;
+  tiles(300, 0.22, (hx, idx)=>{
+    const base = CH-116;
     // hangar: curved roof approximated in steps, bay door open
     rect(hx, base-34, 116, 34, "#5a6a8c");
     rect(hx+10, base-44, 96, 10, "#6c7ea3");
@@ -2323,21 +2477,20 @@ function drawAirfield(lvl){
     rect(tx, base-96, 26, 96, "#5a6a8c");
     rect(tx-10, base-118, 46, 24, "#7d90b8");
     rect(tx-6, base-114, 38, 14, "#0f1730");
-    // rotating radar dish on the mast
-    const ang = worldT*1.7 + i;
-    const dw = Math.abs(Math.cos(ang))*22 + 4;
+    // rotating radar dish on the mast — phase keyed to idx so it keeps turning
+    // smoothly instead of resetting when the row recycles
+    const dw = Math.abs(Math.cos(worldT*1.7 + idx))*22 + 4;
     rect(tx+13-dw/2, base-134, dw, 4, "#c8d4ea");
     rect(tx+11, base-132, 4, 14, "#8a97b8");
     // beacon that blinks
-    if(Math.floor(worldT*1.6 + i) % 2 === 0) rect(tx+9, base-142, 8, 8, "#ff5d73");
-    ctx2d.globalAlpha = 1;
-  }
+    if(Math.floor(worldT*1.6 + idx) % 2 === 0) rect(tx+9, base-142, 8, 8, "#ff5d73");
+  });
+  haze(0.42, CH*0.35, CH*0.65);   // push the far field back into the distance
 
   // mid: parked planes, fuel trucks, windsocks that swing
-  const off2 = (scrollX*0.52) % 240;
-  for(let i=-1;i<CW/240+2;i++){
-    const mx = i*240 - off2, base = CH-58;
-    ctx2d.globalAlpha = 0.85;
+  tiles(240, 0.52, (mx, idx)=>{
+    const base = CH-58;
+    ctx2d.globalAlpha = 0.9;
     // parked plane
     rect(mx, base-12, 44, 8, "#c9d6ea"); rect(mx+30, base-20, 6, 10, "#c9d6ea");
     rect(mx+12, base-4, 22, 4, "#8c9ab8"); rect(mx+8, base-16, 18, 4, "#e6eefc");
@@ -2345,12 +2498,13 @@ function drawAirfield(lvl){
     rect(mx+90, base-14, 34, 10, "#ffd23f"); rect(mx+86, base-8, 42, 6, "#8a6a00");
     rect(mx+92, base-2, 8, 4, "#1a1a24"); rect(mx+114, base-2, 8, 4, "#1a1a24");
     // windsock: mast plus a cone that swings with the wind
-    const sway = Math.sin(worldT*2.4 + i)*5;
+    const sway = Math.sin(worldT*2.4 + idx)*5;
     rect(mx+180, base-40, 4, 40, "#9aa7c4");
     rect(mx+184, base-40+sway, 14, 10, "#ff5d73");
     rect(mx+198, base-38+sway*1.3, 10, 8, "#ffd23f");
     ctx2d.globalAlpha = 1;
-  }
+  });
+  haze(0.12, CH*0.55, CH*0.45);
 }
 
 // L3 — NEON HARBOR: lit skyline, flickering signs, sweeping searchlights, rain.
@@ -2373,29 +2527,28 @@ function drawHarbor(lvl){
   }
 
   // far skyline
-  const off1 = (scrollX*0.2) % 110;
-  for(let i=-1;i<CW/110+2;i++){
-    const bx = i*110 - off1, bh = 90 + hash(i)*130;
+  tiles(110, 0.2, (bx, idx)=>{
+    const bh = 90 + hash(idx)*130;
     rectA(bx, CH-96-bh, 78, bh, "#2a1450", 0.9);
     // window grid, a few panes flickering on their own clocks
     for(let wy=0; wy<bh-18; wy+=18){
       for(let wx=8; wx<66; wx+=16){
-        const h2 = hash(i*31 + wy + wx);
+        const h2 = hash(idx*31 + wy + wx);
         if(h2 < 0.45) continue;
         const on = (Math.sin(worldT*(0.8+h2*2) + h2*40) > -0.3);
         rectA(bx+wx, CH-96-bh+wy+8, 8, 8, on ? "#ffd66b" : "#3a2060", on?0.85:0.5);
       }
     }
-  }
+  });
+  haze(0.34, CH*0.25, CH*0.75);   // lit windows must not compete with hazards
 
   // near strip: neon signs blinking on a rooftop parapet
-  const off2 = (scrollX*0.55) % 260;
   const NEON = ["#ff5d73","#3fe0ff","#ffd23f","#4ce07a"];
-  for(let i=-1;i<CW/260+2;i++){
-    const bx = i*260 - off2, bh = 60 + hash(i*3)*60, top = CH-64-bh;
+  tiles(260, 0.55, (bx, idx)=>{
+    const bh = 60 + hash(idx*3)*60, top = CH-64-bh;
     rectA(bx, top, 130, bh, "#170a2e", 0.95);
-    const col = NEON[Math.floor(hash(i*5)*NEON.length)];
-    const lit = Math.sin(worldT*3.1 + i*2) > -0.55;
+    const col = NEON[Math.floor(hash(idx*5)*NEON.length)];
+    const lit = Math.sin(worldT*3.1 + idx*2) > -0.55;
     ctx2d.globalAlpha = lit ? 0.95 : 0.25;
     rect(bx+14, top+12, 96, 8, col);
     rect(bx+14, top+28, 60, 6, col);
@@ -2403,7 +2556,8 @@ function drawHarbor(lvl){
     ctx2d.globalAlpha = lit ? 0.20 : 0.06;
     rect(bx+4, top+2, 118, 44, col);
     ctx2d.globalAlpha = 1;
-  }
+  });
+  haze(0.10, CH*0.5, CH*0.5);
 
   // rain streaks, fast layer
   for(let i=0;i<70;i++){
@@ -2415,25 +2569,25 @@ function drawHarbor(lvl){
 
 // L4 — MAGMA DRIFT: erupting cones, rising embers, pulsing lava cracks, ash.
 function drawMagma(lvl){
-  // heat haze band across the horizon, breathing
+  // heat rising off the lava, breathing — ramped so it has no visible top edge
   const pulse = 0.10 + 0.05*Math.sin(worldT*1.3);
-  ctx2d.globalAlpha = pulse; ctx2d.fillStyle = "#ff7a2f";
-  ctx2d.fillRect(0, CH-220, CW, 220); ctx2d.globalAlpha = 1;
+  const heat = ctx2d.createLinearGradient(0, CH-260, 0, CH);
+  heat.addColorStop(0, "rgba(255,122,47,0)");
+  heat.addColorStop(1, "rgba(255,122,47," + (pulse*1.6).toFixed(3) + ")");
+  ctx2d.fillStyle = heat; ctx2d.fillRect(0, CH-260, CW, 260);
 
   // floating rock islands, slow layer
-  const off0 = (scrollX*0.14) % 340;
-  for(let i=-1;i<CW/340+2;i++){
-    const ix = i*340 - off0, iy = 90 + hash(i)*80 + Math.sin(worldT*0.8+i)*8;
+  tiles(340, 0.14, (ix, idx)=>{
+    const iy = 90 + hash(idx)*80 + Math.sin(worldT*0.8+idx)*8;
     rectA(ix, iy, 86, 20, "#3a1a14", 0.85);
     rectA(ix+12, iy+20, 60, 14, "#2a1210", 0.85);
     rectA(ix+26, iy+34, 28, 10, "#1c0c0a", 0.85);
     rectA(ix+8, iy-6, 30, 8, "#54241a", 0.85);
-  }
+  });
 
   // volcano cones that erupt on staggered timers
-  const off1 = (scrollX*0.26) % 320;
-  for(let i=-1;i<CW/320+2;i++){
-    const vx = i*320 - off1, base = CH-70, vh = 120 + hash(i*7)*70;
+  tiles(320, 0.26, (vx, idx)=>{
+    const base = CH-70, vh = 120 + hash(idx*7)*70;
     // stepped cone
     for(let s=0;s<7;s++){
       const w = 150 - s*18, h = vh/7;
@@ -2443,18 +2597,19 @@ function drawMagma(lvl){
     const crater = vx + 60;
     rectA(crater, base-vh-4, 30, 8, "#ff9d3f", 0.9);
     // eruption: a burst every ~4.5s, staggered per cone
-    const ph = (worldT*0.22 + hash(i*11)) % 1;
+    const ph = (worldT*0.22 + hash(idx*11)) % 1;
     if(ph < 0.28){
       const u = ph/0.28;
       for(let e=0;e<12;e++){
-        const a = hash(i*17+e);
+        const a = hash(idx*17+e);
         const ex = crater + 15 + (a-0.5)*130*u;
         const ey = base - vh - 8 - u*170*(0.5+a*0.9) + u*u*90;
         rectA(ex, ey, 5, 5, a<0.5 ? "#ffd23f" : "#ff5d3f", Math.max(0, 1-u));
       }
       rectA(crater-4, base-vh-14, 38, 12, "#ffd23f", (1-u)*0.5);
     }
-  }
+  });
+  haze(0.26, CH*0.2, CH*0.8);   // dark rock on dark red needed separating
 
   // drifting ash
   for(let i=0;i<50;i++){
@@ -2465,13 +2620,11 @@ function drawMagma(lvl){
 
   // lava river at the base, cracks pulsing
   rect(0, CH-64, CW, 40, "#2a0a06");
-  const offL = (scrollX*0.75) % 60;
-  for(let i=-1;i<CW/60+2;i++){
-    const lx = i*60 - offL;
-    const glow = 0.45 + 0.35*Math.sin(worldT*2.4 + i);
+  tiles(60, 0.75, (lx, idx)=>{
+    const glow = 0.45 + 0.35*Math.sin(worldT*2.4 + idx);
     rectA(lx, CH-56, 44, 10, "#ff5d3f", glow);
     rectA(lx+8, CH-52, 26, 4, "#ffd23f", glow);
-  }
+  });
 }
 
 // L5 — ORBITAL VOID: a chunky planet, a military platform with turning dish
@@ -2505,28 +2658,30 @@ function drawOrbital(lvl){
   ctx2d.globalAlpha = 1;
 
   // military platform silhouettes with rotating dish arrays
-  const off1 = (scrollX*0.24) % 380;
-  for(let i=-1;i<CW/380+2;i++){
-    const sx = i*380 - off1, sy = 96 + hash(i)*60;
+  tiles(380, 0.24, (sx, idx)=>{
+    const sy = 96 + hash(idx)*60;
     ctx2d.globalAlpha = 0.92;
     rect(sx, sy, 150, 22, "#7c8496");          // deck
     rect(sx+10, sy+22, 130, 10, "#565d6e");
     rect(sx+40, sy-26, 70, 26, "#8d95a8");     // command block
     rect(sx+50, sy-20, 50, 12, "#3a1d5e");     // lit bridge windows
-    if(Math.floor(worldT*2 + i)%2===0) rect(sx+54, sy-18, 10, 8, "#ff5d73");
+    if(Math.floor(worldT*2 + idx)%2===0) rect(sx+54, sy-18, 10, 8, "#ff5d73");
     // three dishes turning at different rates
     for(let d=0; d<3; d++){
-      const dx = sx + 22 + d*48, ang = worldT*(1.1 + d*0.4) + i;
-      const dw = Math.abs(Math.cos(ang))*20 + 5;
+      const dx = sx + 22 + d*48;
+      const dw = Math.abs(Math.cos(worldT*(1.1 + d*0.4) + idx))*20 + 5;
       rect(dx-2, sy-16, 4, 16, "#8d95a8");
       rect(dx-dw/2, sy-22, dw, 5, "#cfd8e8");
     }
     // engine glow beneath
-    const gl = 0.4 + 0.3*Math.sin(worldT*4 + i);
+    const gl = 0.4 + 0.3*Math.sin(worldT*4 + idx);
     rectA(sx+34, sy+32, 18, 8, "#3fe0ff", gl);
     rectA(sx+96, sy+32, 18, 8, "#3fe0ff", gl);
     ctx2d.globalAlpha = 1;
-  }
+  });
+  // Pale grey hulls at full strength read as solid objects — exactly what an
+  // obstacle looks like. Sink them into the dark so they stay scenery.
+  haze(0.42);
 
   // patrolling saucers, tractor beams cast downward
   for(let k=0;k<3;k++){
@@ -2547,15 +2702,14 @@ function drawOrbital(lvl){
       rectA(ux-18+d*16, uy+8, 6, 4, on ? "#ffd23f" : "#5a6480", on?1:0.6);
     }
   }
+  haze(0.20);   // saucers sit nearer than the platforms, so a lighter wash
 
   // circuit rails pulsing along the ceiling and floor
-  const offR = (scrollX*0.9) % 120;
-  for(let i=-1;i<CW/120+2;i++){
-    const rx = i*120 - offR;
-    const p = (Math.sin(worldT*3 - i*0.7)+1)/2;
+  tiles(120, 0.9, (rx, idx)=>{
+    const p = (Math.sin(worldT*3 - idx*0.7)+1)/2;
     rectA(rx, GROUND_MARGIN-6, 80, 3, "#3fe0ff", 0.15 + p*0.55);
     rectA(rx+40, CH-GROUND_MARGIN+3, 80, 3, "#3fe0ff", 0.15 + (1-p)*0.55);
-  }
+  });
 }
 
 function drawBackground(){
@@ -2568,24 +2722,7 @@ function drawBackground(){
   else if(lvl.theme === "harbor")   drawHarbor(lvl);
   else if(lvl.theme === "magma")    drawMagma(lvl);
   else if(lvl.theme === "orbital")  drawOrbital(lvl);
-  else {
-    // LEVEL 1 — unchanged from v3: blocky mountains over a mid-block ridge.
-    const off1 = (scrollX*0.25) % 80;
-    ctx2d.globalAlpha = 0.35;
-    for(let i=-1;i<CW/80+2;i++){
-      const bx = i*80 - off1;
-      const bh = 60 + ((i*37)%3)*20;
-      rect(bx, CH-100-bh, 60, bh, lvl.accent);
-    }
-    ctx2d.globalAlpha = 0.5;
-    const off2 = (scrollX*0.55) % 60;
-    for(let i=-1;i<CW/60+2;i++){
-      const bx = i*60 - off2;
-      const bh = 30 + ((i*53)%4)*14;
-      rect(bx, CH-70-bh, 40, bh, lvl.sky[1]);
-    }
-    ctx2d.globalAlpha = 1;
-  }
+  else drawDawn(lvl);
 
   // ground strip
   rect(0, CH-GROUND_MARGIN+8, CW, GROUND_MARGIN-8, lvl.ground);
@@ -2637,6 +2774,20 @@ function drawApproachBeacon(){
 
 function drawObstacle(ob){
   if(ob.fade != null) ctx2d.globalAlpha = ob.fade;
+  // Dark rim first, drawn as the body's own rects inflated by 2px. Hazards
+  // then separate from any landscape behind them — which is what keeps a
+  // busy background (lit windows, glowing rock) from swallowing them.
+  ctx2d.globalAlpha *= 0.85;
+  if(ob.type === "rotbar"){
+    // sampled squares would rim as a dotted caterpillar — outline the real bar
+    ctx2d.save();
+    ctx2d.translate(ob.x + ob.w/2, ob.y); ctx2d.rotate(ob.ang);
+    rect(-ob.len/2-11, -ob.thick/2-3, ob.len+22, ob.thick+6, "#080a12");
+    ctx2d.restore();
+  } else {
+    for(const r of obstacleRects(ob)) rect(r.x-3, r.y-3, r.w+6, r.h+6, "#080a12");
+  }
+  ctx2d.globalAlpha = (ob.fade != null) ? ob.fade : 1;
   drawObstacleBody(ob);
   ctx2d.globalAlpha = 1;
 }
