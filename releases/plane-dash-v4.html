@@ -271,17 +271,28 @@
   /* Held clear of the home-indicator strip: iOS treats the bottom edge as a
      system swipe zone and swallows the first touch there, which feels exactly
      like an unresponsive button. Same for the landscape notch on the right. */
+  /* Sized from --ui, the stage's scale factor (set by fitStage), so the button
+     keeps the same proportion of the play area at every screen size. It used
+     to be a flat 150px: fine on a 960-wide desktop stage, but half the height
+     of the play area once the stage scaled down to a phone in landscape.
+     The floor keeps it a thumb-friendly target on the smallest screens.
+
+     No env() insets here — #root is already padded by the safe area and the
+     stage sits inside that padding, so applying them again just pushed the
+     button away from the corner twice. */
   #thrustPad{
     position:absolute;
-    right:calc(4% + env(safe-area-inset-right));
-    bottom:calc(6% + env(safe-area-inset-bottom) + 8px);
+    right:2.5%;
+    bottom:3.5%;
     left:auto; top:auto;
-    width:150px; height:150px;
+    width:calc(124px * var(--ui, 1));
+    height:calc(124px * var(--ui, 1));
+    min-width:78px; min-height:78px;
     display:flex; align-items:center; justify-content:center;
     z-index:3;
   }
   #thrustBtn{
-    width:132px; height:132px;
+    width:88%; height:88%;
     clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0% 50%);
     background: var(--accent3);
     box-shadow:6px 6px 0 #000, 0 0 24px rgba(63,224,255,.35);
@@ -294,7 +305,9 @@
     clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0% 50%);
     background:radial-gradient(circle at 35% 30%, #2a3260, #0e1330 70%);
     display:flex; align-items:center; justify-content:center;
-    color:var(--accent3); font-size:9px; text-align:center; line-height:1.4;
+    color:var(--accent3); text-align:center; line-height:1.4;
+    /* label tracks the button so it never overflows the hex when it shrinks */
+    font-size:clamp(5px, calc(9px * var(--ui, 1)), 11px);
   }
   #thrustBtn.active{
     background: var(--accent);
@@ -3285,6 +3298,9 @@ function fitStage(){
   stageEl.style.width = Math.floor(CW * scale) + "px";
   stageEl.style.height = Math.floor(totalDesignH * scale) + "px";
   hudBar.style.height = Math.floor(HUD_H * scale) + "px";
+  // Publish the scale so on-stage UI (the climb button and its label) can size
+  // itself proportionally instead of staying fixed while the stage shrinks.
+  stageEl.style.setProperty("--ui", scale.toFixed(4));
 }
 // Refit, then undo any scroll iOS may have applied — the stage is fixed, so a
 // stray one-pixel scroll shifts the whole game relative to the touch targets.
@@ -3517,6 +3533,7 @@ function initPreviewMode(){
     stageEl.style.width  = Math.floor(CW * scale) + "px";
     stageEl.style.height = Math.floor((CH + HUD_H) * scale) + "px";
     hudBar.style.height  = Math.floor(HUD_H * scale) + "px";
+    stageEl.style.setProperty("--ui", scale.toFixed(4));
   }
   requestAnimationFrame(previewFit);
 
