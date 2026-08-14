@@ -157,6 +157,14 @@
   .plane-card.selected{ border-color:var(--accent); background:#2a2410; box-shadow:2px 2px 0 var(--accent);}
   .plane-card.selected .pname{ color:var(--accent); }
 
+  .size-row{ display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin-top:6px; }
+  .size-card{
+    background:var(--panel); border:2px solid var(--line);
+    padding:6px 10px; cursor:pointer; text-align:center;
+    font-size:8px; letter-spacing:1px; box-shadow:2px 2px 0 #000;
+  }
+  .size-card.selected{ border-color:var(--accent); background:#2a2410; color:var(--accent); box-shadow:2px 2px 0 var(--accent);}
+
   .diff-row{ display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
   .diff-card{
     background:var(--panel); border:2px solid var(--line);
@@ -398,6 +406,7 @@
         <div class="menu-section">
           <div class="menu-label">01 — CHOOSE YOUR PLANE</div>
           <div class="plane-row" id="planeRow"></div>
+          <div class="size-row" id="sizeRow"></div>
         </div>
 
         <div class="menu-section">
@@ -781,8 +790,18 @@ function rectA(x,y,w,h,color,alpha){ ctx2d.globalAlpha=alpha; rect(x,y,w,h,color
 const PLANE_STYLES = [
   { name:"CRIMSON FALCON", body:"#ff4d5e", accent:"#ffffff", dark:"#a8202f", variant:"classic" },
   { name:"COBALT STREAK",  body:"#3fa9ff", accent:"#e8faff", dark:"#1a5aa8", variant:"jet" },
-  { name:"EMERALD DASH",   body:"#3ee06b", accent:"#ffe94d", dark:"#1a8a3d", variant:"dart" },
-  { name:"AMBER BLAZE",    body:"#ff9d3f", accent:"#7a1010", dark:"#a85a1a", variant:"biplane" },
+  // Low-vis grey fighter. Alone in the line-up it rolls: climbing rotates it
+  // toward a planform view, so its delta wing fans open (see `roll` below).
+  // Kept a couple of stops lighter than "dark grey" really wants: level 5 is a
+  // near-black void, and a true charcoal jet vanishes into it.
+  { name:"IRON KESTREL",   body:"#6d7885", accent:"#aeb8c4", dark:"#48525e", variant:"warjet",
+    glass:"#4ea3c8", lit:"#8b96a3", intake:"#20262e", flash:"#c8442f" },
+  // The little club trainer of the line-up: a high-wing Cessna in white with a
+  // red cheatline. Its tells are the wing sitting ON TOP of the cabin with a
+  // strut down to the belly, fixed gear hanging in the breeze, and a propeller
+  // instead of a jet nozzle — nothing else here has legs or a prop.
+  { name:"SUNDAY SKYLARK", body:"#f3f5f8", accent:"#e02434", dark:"#98a0aa", variant:"cessna",
+    glass:"#3f7d6e", trim:"#8e1526", tire:"#1b1f24", hub:"#c9cfd7" },
   // A wide-body airliner among the arcade jets: bare-metal fuselage, blue
   // cheatline, banded tail, and the twin underwing engines none of the others
   // have — that pair of nacelles is what reads as "airliner" at this size.
@@ -835,12 +854,31 @@ function drawPlane(gx, gy, style, s, opts){
 
   const B = (x,y,w,h,c)=> rect(-22*s + x*s, -10*s + y*s, w*s, h*s, c);
 
-  planeBody(B, style);
+  planeBody(B, style, opts);
 
   // exhaust: a jet gets a flame, the airliner gets engine haze — a wide-body
   // trailing rocket fire would undo all the work the silhouette is doing
   if(opts.thrust){
-    if(style.variant === "airliner"){
+    if(style.variant === "warjet"){
+      // Afterburner cones that track the nozzles through the roll.
+      const r = Math.max(0, Math.min(1, opts.roll || 0));
+      const flick = 3 + Math.sin(performance.now()/28)*2;
+      const nz = 3.2 - 1.6*r, sp = 1.2*r;
+      for(const off of (r > 0.15 ? [-sp, sp] : [0])){
+        const cy = 7 + off;
+        B(-2.5, cy - nz*0.42, 5+flick, nz*0.84, "#3fa9ff");
+        B(-1.5, cy - nz*0.28, 3.5+flick, nz*0.56, "#bfe6ff");
+        B(-0.5, cy - nz*0.14, 2+flick, nz*0.28, "#ffffff");
+      }
+    } else if(style.variant === "cessna"){
+      // A propeller under power reads as a translucent disc, not a flame.
+      const prev = ctx2d.globalAlpha;
+      ctx2d.globalAlpha = prev * 0.32;
+      B(38.9, 1.8, 2.0, 11, "#e8edf3");
+      ctx2d.globalAlpha = prev * 0.55;
+      B(39.3, 1.8 + (Math.sin(performance.now()/22)+1)*2.2, 1.2, 4, "#ffffff");
+      ctx2d.globalAlpha = prev;
+    } else if(style.variant === "airliner"){
       const puff = 3 + Math.sin(performance.now()/45)*2;
       const prev = ctx2d.globalAlpha;
       ctx2d.globalAlpha = prev * 0.5;
@@ -860,9 +898,87 @@ function drawPlane(gx, gy, style, s, opts){
 }
 
 /* The block layout for every plane, in the shared B() coordinate space so the
-   in-game sprite and the menu thumbnail can never drift apart. */
-function planeBody(B, style){
+   in-game sprite and the menu thumbnail can never drift apart.
+   `opts.roll` (0..1) is read by the warjet only — see that branch. */
+function planeBody(B, style, opts){
+  opts = opts || {};
   const b = style.body, a = style.accent, d = style.dark;
+
+  if(style.variant === "warjet"){
+    const G = style.glass, L = style.lit, IN = style.intake, FL = style.flash;
+    // r rolls the jet from side-on (0) toward a planform view (1). Rather than
+    // two hand-drawn frames cross-faded, every block lerps: the fuselage
+    // flattens toward the roll axis and the wing — one bar seen edge-on at
+    // r=0 — fans open into a swept delta. Blocks still land on whole pixels,
+    // so the sprite stays crisp all the way through the roll.
+    const r = Math.max(0, Math.min(1, opts.roll || 0));
+    const AX = 7;                        // longitudinal (roll) axis
+    const fh = 6 - 2.2*r;                // fuselage depth foreshortens
+    const fy = AX - fh/2;
+    const span = 1.45*r;                 // per-step wing fan
+    const STEPS = 5;
+
+    // wing: root chord x9..x30 tapering to a swept tip x13..x17
+    const wingStep = (k, up)=>{
+      const t = (k+0.5)/STEPS;
+      const x0 = 9 + 4*t, x1 = 30 - 13*t;
+      const y = up ? (fy - 1.0 - k*span) : (fy + fh - 0.4 + k*span);
+      // Side-on the steps stack into one bar, so they must share a colour there
+      // or the wing reads as a smear of mismatched slabs.
+      B(x0, y, x1-x0, 1.5, (r > 0.35 && k >= STEPS-2) ? d : b);
+      B(x0, y + (up ? 1.1 : 0), x1-x0, 0.4, d);               // trailing edge
+    };
+    // tailplanes fan the same way, on a shorter chord
+    const tailStep = (k, up)=>{
+      const t = (k+0.5)/3;
+      const x0 = 1 + 2*t, x1 = 8.5 - 2.5*t;
+      const y = up ? (fy - 0.2 - k*span*0.8) : (fy + fh - 1.0 + k*span*0.8);
+      B(x0, y, x1-x0, 1.2, d);
+    };
+    for(let k=STEPS-1;k>=0;k--) wingStep(k, true);
+    for(let k=2;k>=0;k--) tailStep(k, true);
+
+    // Vertical fin: points out of the screen as the jet rolls, so its steps
+    // collapse rather than sliding — that foreshortening is what sells it.
+    const finH = 1.6 * (1 - 0.72*r);
+    for(let k=0;k<4;k++){
+      const w = 6.4 - k*1.15, xx = 1.2 + k*0.9, yy = fy + 0.4 - (k+1)*finH;
+      B(xx, yy, w, finH + 0.1, d);
+      if(k===3) B(xx, yy, w, finH*0.5, FL);   // thin flash across the tip
+    }
+
+    // fuselage: slimmer tailcone stepping up into the body, plus a ventral
+    // fin that fades out as the underside rolls away from view
+    if(r < 0.7) B(3, fy + fh*0.86, 6.5, 1.8*(1-r), d);
+    B(2, fy + fh*0.17, 11, fh*0.66, b);
+    B(11, fy, 25, fh, b);
+    B(3, fy + 0.3, 32, 0.9, L);                 // lit spine
+    if(r < 0.85) B(12, fy + fh - 1.1, 23, 0.9, d); // belly shadow, side-on only
+    B(35.8, fy + fh*0.16, 3.2, fh*0.66, b);     // nose, stepped to a point
+    B(38.6, fy + fh*0.30, 2.4, fh*0.40, b);
+    B(40.6, fy + fh*0.40, 1.6, fh*0.22, a);     // radome tip
+    // twin nozzles: one silhouette side-on, splitting apart as it rolls
+    const nz = 3.2 - 1.6*r, sp = 1.2*r;
+    B(0.4, AX - nz/2 - sp, 3.2, nz, IN);
+    if(r > 0.15) B(0.4, AX - nz/2 + sp, 3.2, nz, IN);
+    // intakes: shoulder-mounted, the far one only visible once rolled
+    B(21, fy + fh - 2.6, 5.5, 1.8, IN);
+    if(r > 0.2) B(21, fy + 0.8 - 1.4*r, 5.5, 1.8*r, IN);
+    // canopy slides from the spine to the centreline as the top comes into view
+    const ch = 2.3 - 0.5*r;
+    const cyTop = (fy - 1.5) + ((AX - ch/2) - (fy - 1.5))*r;
+    B(25.2, cyTop + 0.7, 8, ch - 0.7, d);        // fairing blending into the spine
+    B(26.0, cyTop, 6.4, ch, G);                  // glass
+    B(31.4, cyTop + 0.5, 1.6, ch - 0.5, G);      // raked windscreen
+    B(25.6, cyTop, 0.9, ch, d);                  // rear frame
+    // low-vis insignia, only once there is a wing surface to carry it
+    if(r > 0.45){ B(17, fy - 0.5 - 2*span, 2.4, 1.5, FL); }
+
+    // near-side wing and tailplane last so they overlap the fuselage
+    for(let k=0;k<STEPS;k++) wingStep(k, false);
+    for(let k=0;k<3;k++) tailStep(k, false);
+    return;
+  }
 
   if(style.variant === "airliner"){
     const cr = style.crown, R = style.stripeRed, BL = style.stripeBlue, EN = style.engine;
@@ -898,6 +1014,57 @@ function planeBody(B, style){
     B(18.5,11.2,8,3.4, EN);          // near nacelle
     B(25.6,11.2,1.6,3.4, cr);        // intake lip catching the light
     B(17.6,12,1.6,1.8, "#39404a");   // exhaust cone
+    return;
+  }
+
+  if(style.variant === "cessna"){
+    const G = style.glass, TR = style.trim, TI = style.tire, HB = style.hub;
+    // Tailplane, then a fin stepped so its leading edge rakes forward — the
+    // red cap and the flash sweeping down into the spine are the tail's tells.
+    B(0,6.0,8,1.4, b);
+    B(0,7.4,8,0.7, d);
+    for(let k=0;k<4;k++){
+      const yy = 5.6 - (k+1)*1.4, w = 7 - k*1.0, xx = 1 + k*0.8;
+      B(xx, yy, w, 1.5, k===3 ? style.accent : b);          // red cap on top
+      if(k<3) B(xx + w - 1.2, yy, 1.2, 1.5, style.accent);  // flash on the
+                                                            // raked leading edge
+    }
+    // fuselage: slim tailcone stepping up into the cabin section
+    B(3,5.8,11,3.0, b);
+    B(3,8.4,11,0.8, d);
+    B(13,4.9,24,5.4, b);
+    B(13,9.3,24,1.0, d);             // shadowed belly
+    B(4,7.9,32,1.0, style.accent);   // cheatline, tail to nose
+    B(4,8.8,30,0.4, TR);             // its darker underline
+    // cabin standing proud of the fuselage, glass raked into a windshield
+    B(16,3.4,16,1.6, b);
+    B(18.4,4.0,9.6,1.0, G);
+    B(28.2,4.1,1.5,0.9, G);
+    B(21.4,4.0,0.7,1.0, b);          // door post
+    // High wing sitting ON the cabin — the single loudest Cessna cue. The
+    // shadow runs its whole span so the wing reads as a separate plane of
+    // material rather than melting into the cabin roof.
+    B(9,1.9,27,1.6, b);
+    B(9,3.5,27,0.5, d);
+    B(7.6,1.9,1.6,1.6, style.accent); // tip
+    // lift strut, wing underside down to the belly
+    B(14.0,3.9,1.1,1.8, d);
+    B(15.0,5.6,1.1,1.8, d);
+    B(16.0,7.3,1.1,2.2, d);
+    // fixed gear — the legs hanging in the breeze are the other half of it
+    B(16.2,10.3,1.2,1.9, d);
+    B(14.8,12.0,3.0,2.4, TI);
+    B(15.8,12.8,1.2,1.0, HB);
+    B(20.2,10.3,1.3,2.1, d);
+    B(18.9,12.2,3.4,2.6, TI);
+    B(20.0,13.1,1.4,1.1, HB);
+    B(30.4,10.3,1.2,2.2, d);
+    B(29.2,12.3,3.0,2.4, TI);
+    B(30.2,13.1,1.2,1.0, HB);
+    // cowling, spinner and the prop blade standing off the nose
+    B(36.6,5.4,1.8,4.2, b);
+    B(38.0,6.0,1.8,3.0, style.accent);
+    B(39.4,2.8,0.9,9.2, d);
     return;
   }
 
@@ -965,6 +1132,8 @@ const MIN_CORRIDOR = 130;           // px of open sky an obstacle must always le
 let state = "menu"; // menu | countdown | playing | crashed | levelcomplete | win
 let selectedPlaneIdx = 0;
 let selectedDiff = 1;
+const BASE_PLANE_SCALE = 1.6;   // the scale used for the player plane before XL
+let planeScale = 1;             // 1 = normal, 2 = XL
 let currentLevel = 0;
 
 let plane, obstacles, powerups, particles, floatTexts;
@@ -991,6 +1160,8 @@ let rafId = null;
 let wingman = null;              // level-5 escort: absorbs a hit, shoots hazards
 let bolts = [];                  // wingman projectiles
 let shakeT = 0, shakeMag = 0;    // screen shake, decays to zero
+let rollAmt = 0;                 // 0 = side-on sprite, 1 = rolled to planform
+let skippedRun = false;          // run was jumped into via ?start= — no best score
 let fuelWarnTimer = 0;           // throttles the low-fuel beep
 let levelStats = null;           // per-level end-card counters
 let approach = null;             // final-approach state once spawning has stopped
@@ -1023,6 +1194,7 @@ function resetRunState(){
   wingman = null;
   bolts = [];
   shakeT = 0; shakeMag = 0;
+  rollAmt = 0;
   fuelWarnTimer = 0;
   lastStructuralGap = null;
   structuralCooldown = 0;
@@ -1495,7 +1667,7 @@ function avoidPickups(ob){
    COLLISION
    ========================================================= */
 function planeHitbox(){
-  return { x: PLANE_X-24, y: plane.y-11, w:50, h:22 };
+  return { x: PLANE_X-24*planeScale, y: plane.y-11*planeScale, w:50*planeScale, h:22*planeScale };
 }
 function rectsOverlap(a,b){
   return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
@@ -1600,10 +1772,25 @@ function drawPlaneOnCtx(targetCtx, gx, gy, style, s, opts){
     targetCtx.fillRect(Math.round(-22*s+x*s), Math.round(-10*s+y*s),
                        Math.max(1, Math.round(w*s)), Math.max(1, Math.round(h*s)));
   };
-  planeBody(B, style);
+  planeBody(B, style, opts);
   targetCtx.restore();
 }
 renderPlaneIcons();
+
+const SIZE_OPTIONS = [ { label:"NORMAL", scale:1 }, { label:"XL", scale:2 } ];
+const sizeRow = document.getElementById("sizeRow");
+SIZE_OPTIONS.forEach((opt)=>{
+  const card = document.createElement("div");
+  card.className = "size-card" + (opt.scale===planeScale ? " selected":"");
+  card.textContent = opt.label;
+  card.addEventListener("click", ()=>{
+    planeScale = opt.scale;
+    document.querySelectorAll(".size-card").forEach(el=>el.classList.remove("selected"));
+    card.classList.add("selected");
+    Audio8.sfxClick();
+  });
+  sizeRow.appendChild(card);
+});
 
 const diffRow = document.getElementById("diffRow");
 DIFFICULTIES.forEach((d, idx)=>{
@@ -1706,7 +1893,7 @@ function crashPlane(reason){
   crashReasonText = reason;
   // Best is per-difficulty and records however far you got, not only full runs.
   const dk = DIFFICULTIES[selectedDiff].key;
-  if(score > getBest(dk)){ setBest(dk, score); refreshBestLabels(); }
+  if(!skippedRun && score > getBest(dk)){ setBest(dk, score); refreshBestLabels(); }
   document.getElementById("crashReason").textContent = reason;
   document.getElementById("crashScore").textContent = Math.floor(score);
   document.getElementById("crashTitle").textContent = "CRASHED!";
@@ -1783,7 +1970,7 @@ function updateLevelClearAnim(dt){
     scrollX += 240*dt;
     if(Math.random() < 0.6){
       particles.push({
-        x: plane.x-34+randRange(-4,4), y: plane.y+randRange(-7,7),
+        x: plane.x-34*planeScale+randRange(-4,4), y: plane.y+randRange(-7*planeScale,7*planeScale),
         vx: randRange(-160,-80), vy: randRange(-25,25),
         life: randRange(0.2,0.38), age:0, size: randRange(4,8),
         color: Math.random()<0.5 ? "#ffd23f" : "#ff9d3f", noGravity:true
@@ -1914,7 +2101,7 @@ function finalizeWin(){
   document.getElementById("winDiff").textContent = DIFFICULTIES[selectedDiff].label;
   const dk = DIFFICULTIES[selectedDiff].key;
   const prev = getBest(dk);
-  if(score > prev){
+  if(!skippedRun && score > prev){
     setBest(dk, score);
     document.getElementById("winBest").innerHTML = "<b>★ NEW BEST! ★</b>";
   } else {
@@ -2017,6 +2204,12 @@ function update(dt){
   if(shakeT > 0) shakeT -= dt;
   if(structuralCooldown > 0) structuralCooldown -= dt;
 
+  // Roll: how far the sprite has rotated toward a planform (top) view. Driven
+  // by climb rate, eased so it winds on and off instead of snapping. Only the
+  // warjet's art reads it; every other plane ignores the value.
+  const rollTarget = Math.max(0, Math.min(1, -plane.vy / -MAX_RISE));
+  rollAmt += (rollTarget - rollAmt) * Math.min(1, dt*7);
+
   // timers
   if(slowTimer > 0){ slowTimer -= dt; if(slowTimer<=0){ slowFactor = 1; } }
   if(scoreMultiplierTimer > 0){ scoreMultiplierTimer -= dt; if(scoreMultiplierTimer<=0){ scoreMultiplier = 1; } }
@@ -2037,15 +2230,20 @@ function update(dt){
     // Exhaust plume trailing behind the plane while climbing. The airliner
     // trails engine vapour rather than rocket fire — an orange plume behind a
     // wide-body undoes everything the silhouette is doing.
-    const jet = PLANE_STYLES[selectedPlaneIdx].variant === "airliner";
+    const vr = PLANE_STYLES[selectedPlaneIdx].variant;
+    // Trail colour follows the engine: pale wash for the propeller and the
+    // wide-body, blue afterburner heat for the fighter, rocket fire otherwise.
+    const pale = (vr === "airliner" || vr === "cessna");
+    const burner = (vr === "warjet");
     for(let i=0;i<2;i++){
       particles.push({
-        x: PLANE_X - 34 + randRange(-4,4), y: plane.y + randRange(-7,7),
+        x: PLANE_X - 34*planeScale + randRange(-4,4), y: plane.y + randRange(-7*planeScale,7*planeScale),
         vx: randRange(-160,-80), vy: randRange(-25,35),
         life: randRange(0.22,0.42), age:0,
         size: randRange(4,9),
-        color: jet ? (Math.random()<0.5 ? "#c9d2dc" : "#eef3f8")
-                   : (Math.random()<0.5 ? "#ffd23f" : "#ff9d3f"),
+        color: pale   ? (Math.random()<0.5 ? "#c9d2dc" : "#eef3f8")
+             : burner ? (Math.random()<0.5 ? "#3fa9ff" : "#bfe6ff")
+                      : (Math.random()<0.5 ? "#ffd23f" : "#ff9d3f"),
         noGravity:true
       });
     }
@@ -2056,8 +2254,9 @@ function update(dt){
   plane.y += plane.vy*dt;
 
   let outOfBounds = false;
-  if(plane.y < GROUND_MARGIN){ plane.y = GROUND_MARGIN; plane.vy = 0; }
-  if(plane.y > CH-GROUND_MARGIN){ plane.y = CH-GROUND_MARGIN; plane.vy = 0; outOfBounds = false; }
+  const boundsMargin = GROUND_MARGIN + 11*(planeScale-1);
+  if(plane.y < boundsMargin){ plane.y = boundsMargin; plane.vy = 0; }
+  if(plane.y > CH-boundsMargin){ plane.y = CH-boundsMargin; plane.vy = 0; outOfBounds = false; }
 
   // score (distance)
   score += dt * 12 * scoreMultiplier;
@@ -2144,7 +2343,7 @@ function update(dt){
     const obLeft = (ob.type === "rotbar") ? ob.x - ob.len/2 : ob.x;
     if(obLeft + obW < -20) ob.dead = true;
     // count it as cleared the moment it passes the plane
-    if(!ob.counted && obLeft + obW < PLANE_X - 24){ ob.counted = true; levelStats.cleared++; }
+    if(!ob.counted && obLeft + obW < PLANE_X - 24*planeScale){ ob.counted = true; levelStats.cleared++; }
 
     if(!ob.dead && invuln<=0 && phaseTimer<=0){
       let hit = false;
@@ -2243,7 +2442,7 @@ function updateWingman(dt, worldSpeed){
     if(wingman.alive){
       wingman.life -= dt;
       // trail the player with lag so it reads as a second pilot, not a sprite bolted on
-      const tx = PLANE_X - 62, ty = plane.y - 46 + Math.sin(wingman.t*2.2)*8;
+      const tx = PLANE_X - 62*planeScale, ty = plane.y - 46*planeScale + Math.sin(wingman.t*2.2)*8;
       wingman.t += dt;
       wingman.x += (tx - wingman.x) * Math.min(1, dt*3.4);
       wingman.y += (ty - wingman.y) * Math.min(1, dt*2.6);
@@ -2321,7 +2520,7 @@ function collectPowerup(p){
     Audio8.sfxPickup("star");
     spawnFloatText(p.x, p.y, "+60 x2!", "#ffd23f");
   } else if(p.kind === "wingman"){
-    wingman = { x: PLANE_X-62, y: plane.y-46, t:0, life:WINGMAN_LIFE,
+    wingman = { x: PLANE_X-62*planeScale, y: plane.y-46*planeScale, t:0, life:WINGMAN_LIFE,
                 cd:0.5, alive:true, deathT:0 };
     Audio8.sfxPickup("wingman");
     spawnFloatText(p.x, p.y, "WINGMAN!", "#ff9d3f");
@@ -3027,7 +3226,7 @@ function drawWingmanAndBolts(){
     ctx2d.beginPath(); ctx2d.moveTo(wingman.x+18, wingman.y+8);
     ctx2d.lineTo(PLANE_X-18, plane.y-8); ctx2d.stroke();
     ctx2d.globalAlpha = flick ? 0.4 : 1;
-    drawPlane(wingman.x, wingman.y, style, 1.0, { thrust:true, tilt:-0.08 });
+    drawPlane(wingman.x, wingman.y, style, 1.0, { thrust:true, tilt:-0.08, roll: rollAmt*0.7 });
     ctx2d.globalAlpha = 1;
   } else {
     // going down: tumbling, trailing smoke
@@ -3151,9 +3350,10 @@ function draw(){
     const px = (plane && plane.x!=null) ? plane.x : PLANE_X;
     let tilt = plane ? Math.max(-0.35, Math.min(0.5, plane.vy/900)) : 0;
     if(state === "winanim") tilt = winAnim.t*3.4;
-    drawPlane(px, plane.y, style, 1.6, {
+    drawPlane(px, plane.y, style, BASE_PLANE_SCALE * planeScale, {
       thrust: holding, shield: shieldCharges>0, glow: scoreMultiplier>1 || state==="winanim",
-      flicker: invuln>0, magnet: magnetTimer>0, phase: phaseTimer>0, tilt
+      flicker: invuln>0, magnet: magnetTimer>0, phase: phaseTimer>0, tilt,
+      roll: rollAmt
     });
   }
   if(state !== "winanim") drawWingmanAndBolts();
@@ -3200,6 +3400,7 @@ document.getElementById("playBtn").addEventListener("click", ()=>{
   Audio8.ensureCtx();
   Audio8.sfxClick();
   tryLockLandscape();
+  skippedRun = false;      // a run started from the menu counts again
   score = 0;
   beginLevel(0);
 });
@@ -3542,10 +3743,37 @@ function initPreviewMode(){
   syncUI();
 }
 
+/* =========================================================
+   LEVEL JUMP  —  plane-dash-v4.html?start=5
+   ---------------------------------------------------------
+   Drops straight into a real, playable run at that level (1..5) instead of
+   flying up to it, for previewing late-level art and hazards. Optional
+   &plane=0..N and &diff=easy|normal|hard|demon. Unlike ?preview=level this is
+   the actual game — the plane flies and can crash — so the run is flagged and
+   never writes a best score.
+   ========================================================= */
+function initLevelJump(){
+  if(PREVIEW.on) return;                       // preview harness owns the page
+  const params = new URLSearchParams(location.search);
+  if(!params.get("start")) return;
+  const lvl = Math.max(0, Math.min(4, (parseInt(params.get("start"), 10) || 1) - 1));
+
+  const p = parseInt(params.get("plane"), 10);
+  if(!isNaN(p)) selectedPlaneIdx = Math.max(0, Math.min(PLANE_STYLES.length-1, p));
+  const di = DIFFICULTIES.findIndex(x => x.key === (params.get("diff") || "").toLowerCase());
+  if(di >= 0) selectedDiff = di;
+
+  skippedRun = true;
+  score = 0;
+  beginLevel(lvl);
+  if(!rafId) rafId = requestAnimationFrame(loop);
+}
+
 // initial idle render behind the menu
 drawBackground();
 showMenu();
 initPreviewMode();
+initLevelJump();
 
 })();
 </script>
